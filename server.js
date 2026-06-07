@@ -16,7 +16,9 @@ const __dirname  = dirname(__filename);
 const app    = express();
 const server = createServer(app);
 // WebSocket removed — dashboard uses HTTP polling
-const PORT   = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT) || 8080;
+console.log('PORT env var:', process.env.PORT);
+console.log('Using port:', PORT);
 
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
