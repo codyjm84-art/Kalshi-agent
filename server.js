@@ -915,12 +915,16 @@ app.get('/api/signals', (req, res) => res.json({ signals: state.signals, autoLog
 
 app.get('/api/state', (req, res) => {
   dedupeOrders(); // always return clean deduplicated orders
+  // Don't include full markets array in state - too large, causes timeouts
+  // Dashboard fetches markets separately via /api/markets
+  const { markets, priceHistory, ...stateWithoutMarkets } = state;
   res.json({
-  ...state,
-  config:  { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
-  signals: state.signals || [],
-  autoLog: state.autoLog || [],
-  autoTrade: state.autoTrade,
+    ...stateWithoutMarkets,
+    markets: markets.slice(0, 100), // just first 100 for quick load
+    config:  { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
+    signals: state.signals || [],
+    autoLog: state.autoLog || [],
+    autoTrade: state.autoTrade,
   });
 });
 
@@ -1666,15 +1670,17 @@ document.addEventListener('DOMContentLoaded', function(){
     fetch('/api/state').then(r=>r.json()).then(d=>{
       mergeState(d);
       renderAll();
-      // Explicitly render markets if they came back
-      if(d.markets&&d.markets.length){
-        state.markets=d.markets;
-        renderMarkets();
-      }
       setPill('ws-pill','● LIVE','pill-g');
+      // Fetch full markets list separately
+      fetch('/api/markets').then(r=>r.json()).then(mkts=>{
+        if(mkts&&mkts.length){
+          state.markets=mkts;
+          renderMarkets();
+          $('bm').textContent=mkts.length;
+        }
+      }).catch(()=>{});
     }).catch(()=>{
       if(attempt<5) setTimeout(()=>initialLoad(attempt+1), 2000);
-      else $('status-bar').textContent='● Cannot reach server — check Railway';
     });
   }
   initialLoad(1);
