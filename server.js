@@ -559,7 +559,7 @@ async function syncKalshiPositions() {
     const execRes = await kalFetch('GET', '/portfolio/orders?limit=100&status=executed');
     const execOrders = execRes.orders || [];
     console.log('[Executed orders] count:', execOrders.length);
-    if(execOrders.length>0) console.log('[Executed first]:', JSON.stringify(execOrders[0]).slice(0,400));
+    if(execOrders.length>0) console.log('[Executed ALL FIELDS]:', JSON.stringify(execOrders[0]));
 
     for (const o of execOrders) {
       const ticker = o.ticker || o.market_ticker;
