@@ -1670,6 +1670,9 @@ document.addEventListener('DOMContentLoaded', function(){
         renderModel();
         renderSignals();
         updateAgentBtn();
+        // Show last update time in status bar
+        const ts=new Date().toLocaleTimeString();
+        $('status-bar').textContent='● Updated: '+ts+(d.running?' · Agent running':' · Agent stopped');
         // Re-render markets to show updated prices
         if(d.markets&&d.markets.length){
           state.markets=d.markets;
