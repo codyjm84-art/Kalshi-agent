@@ -158,15 +158,33 @@ async function loadBalance() {
 async function loadMarkets() {
   try {
     setStatus('Loading markets…');
-    // Public endpoint — no auth required
-    const res  = await fetch(`${KALSHI_BASE}/markets?limit=1000&status=open`);
+    // Events API gives proper titles and categories
+    const res = await fetch(`${KALSHI_BASE}/events?limit=200&status=open`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    // Keep all active markets — dashboard handles category filtering
-    state.markets = (data.markets || []).filter(m => {
-      const yes = m.yes_bid || m.last_price || 50;
-      return yes >= state.settings.minOdds && yes <= 100 - state.settings.minOdds;
-    });
-    broadcast('markets', state.markets.slice(0, 100));
+    const events = data.events || [];
+    const markets = [];
+    for (const ev of events) {
+      const evTitle  = ev.title || '';
+      const category = (ev.category || '').toLowerCase();
+      for (const m of (ev.markets || [])) {
+        const yesBid = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100) : 50;
+        if (yesBid < state.settings.minOdds || yesBid > 100 - state.settings.minOdds) continue;
+        const yesLabel = m.yes_sub_title || '';
+        const title    = yesLabel ? `${evTitle}: ${yesLabel}` : evTitle;
+        markets.push({
+          ticker:     m.ticker,
+          title,
+          yes_bid:    yesBid,
+          no_bid:     100 - yesBid,
+          volume:     parseFloat(m.volume_fp || 0),
+          volume_24h: parseFloat(m.volume_24h_fp || 0),
+          category,
+        });
+      }
+    }
+    state.markets = markets;
+    broadcast('markets', state.markets.slice(0, 200));
     setStatus(`${state.markets.length} markets loaded`);
   } catch(e) {
     logError(e);
@@ -709,10 +727,10 @@ function renderMarkets(){
   const el=$('markets-list');if(!el)return;
   const allKW=Object.values(CAT_KW).flat();
   let filtered=activeCategory==='All'
-    ?state.markets.filter(m=>!(m.title||'').toLowerCase().startsWith('yes '))
+    ?state.markets
     :state.markets.filter(m=>{
-      if((m.title||'').toLowerCase().startsWith('yes '))return false;
-      const t=(m.title||m.ticker||'').toLowerCase();
+      if(m.category&&m.category.includes(activeCategory.toLowerCase()))return true;
+      const t=(m.title||'').toLowerCase();
       return(CAT_KW[activeCategory]||[]).some(k=>t.includes(k));
     });
 
@@ -722,18 +740,12 @@ function renderMarkets(){
   if(!filtered.length){el.innerHTML='<div class="empty">NO '+activeCategory.toUpperCase()+' MARKETS<br><br>Tap ↺ Markets in Settings</div>';return;}
 
   el.innerHTML=filtered.slice(0,80).map(m=>{
-    const yO=m.yes_bid||m.last_price||50;
-    const nO=100-yO;
+    const yO=m.yes_bid||50;
+    const nO=m.no_bid||(100-yO);
     const yC=yO>=60?'#00e5a0':yO>=40?'#f5a623':'#ff4455';
     const nC=nO>=60?'#00e5a0':nO>=40?'#f5a623':'#ff4455';
-    // Build clean readable title
-    // Kalshi single markets: title is the question e.g. "Will Trump sign X by Y?"
-    // Multi-leg markets: title starts with "yes " — skip those
-    const rawTitle = m.title || m.ticker || '';
-    const subtitle = m.yes_sub_title || m.subtitle || '';
-    // Use subtitle if available as it's usually cleaner
-    const q = (subtitle || rawTitle).replace(/^yes /i,'').replace(/^no /i,'').slice(0,70);
-    const vol=m.volume?'Vol: '+Number(m.volume).toLocaleString():'';
+    const q = (m.title||m.ticker||'').slice(0,80);
+    const vol=m.volume_24h>0?'24h: '+m.volume_24h.toFixed(0)+' contracts':m.volume>0?'Vol: '+m.volume.toFixed(0):''; 
     const hot=yO>=65?'<span style="font-size:8px;background:#00e5a022;color:#00e5a0;border:1px solid #00e5a044;border-radius:3px;padding:1px 5px;margin-left:5px">HOT</span>':'';
     return '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-radius:8px;padding:12px;margin-bottom:8px">'
       +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;line-height:1.4;margin-bottom:4px">'+q+hot+'</div>'
