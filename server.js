@@ -555,12 +555,15 @@ async function syncKalshiPositions() {
         console.log('[Sync] Added position:', ticker, contracts > 0 ? 'YES' : 'NO', '$'+stake.toFixed(2));
       }
     }
-    // Fetch order history for closed/settled trades
-    const fills = await kalFetch('GET', '/portfolio/orders?limit=50&status=settled');
-    console.log('[Orders-settled] keys:', Object.keys(fills));
-    const firstSettled = (fills.orders||[])[0];
-    console.log('[Orders-settled] first:', JSON.stringify(firstSettled||{}).slice(0,400));
-    const fillList = fills.orders || fills.fills || [];
+    // Try all order statuses to find closed trades
+    for (const status of ['resting','executed','canceled','all']) {
+      try {
+        const r = await kalFetch('GET', '/portfolio/orders?limit=5&status='+status);
+        const orders = r.orders || [];
+        console.log('[Orders-'+status+'] count:', orders.length, 'first:', JSON.stringify(orders[0]||{}).slice(0,300));
+      } catch(e) { console.log('[Orders-'+status+'] error:', e.message.slice(0,80)); }
+    }
+    const fillList = [];
     for (const f of fillList) {
       const ticker = f.ticker || f.market_ticker;
       const alreadyTracked = state.orderLog.find(o => o.id === f.fill_id || o.id === f.order_id);
