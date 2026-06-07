@@ -1387,32 +1387,34 @@ function renderMarkets(){
   if(countEl)countEl.textContent=pageFiltered.length+' of '+total+' markets'+(searchQuery?' (filtered)':'');
   $('bm').textContent=total;
 
-  el.innerHTML=pageFiltered.map(m=>{
-    const yO=m.yes_bid||50;
-    const nO=m.no_bid||(100-yO);
-    const yC=yO>=60?'#00e5a0':yO>=40?'#f5a623':'#ff4455';
-    const nC=nO>=60?'#00e5a0':nO>=40?'#f5a623':'#ff4455';
-    const q = (m.title||m.ticker||'').slice(0,80);
-    const vol=m.volume_24h>0?'24h: '+m.volume_24h.toFixed(0)+' contracts':m.volume>0?'Vol: '+m.volume.toFixed(0):'';
-    let settleStr='';
-    if(m.close_time){const ms2=new Date(m.close_time).getTime()-now;if(ms2>0){const hrs2=Math.floor(ms2/3600000);const days2=Math.floor(hrs2/24);if(days2>0)settleStr=' · '+days2+'d';else if(hrs2>0)settleStr=' · '+hrs2+'h ⏱';else settleStr=' · <1h ⏱';}}
-    const hot=yO>=65?'<span style="font-size:8px;background:#00e5a022;color:#00e5a0;border:1px solid #00e5a044;border-radius:3px;padding:1px 5px;margin-left:5px">HOT</span>':'';
-    return '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-radius:8px;padding:12px;margin-bottom:8px">'
-      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;line-height:1.4;margin-bottom:4px">'+q+hot+'</div>'
-      +'<div style="font-size:9px;color:#444870;margin-bottom:10px">'+vol+settleStr+'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-      +'<button data-ticker="'+m.ticker+'" data-price="'+yO+'" data-side="yes" onclick="trade(this.dataset.ticker,this.dataset.side,parseInt(this.dataset.price))"'
-      +' style="padding:12px 6px;border-radius:6px;border:1px solid '+yC+'55;background:'+yC+'18;color:'+yC+';font-family:monospace;font-weight:700;cursor:pointer;-webkit-appearance:none">'
-      +'<div style="font-size:11px;opacity:.7">YES</div>'
-      +'<div style="font-size:18px;margin-top:2px">'+yO+'¢</div>'
-      +'</button>'
-      +'<button data-ticker="'+m.ticker+'" data-price="'+nO+'" data-side="no" onclick="trade(this.dataset.ticker,this.dataset.side,parseInt(this.dataset.price))"'
-      +' style="padding:12px 6px;border-radius:6px;border:1px solid '+nC+'55;background:'+nC+'18;color:'+nC+';font-family:monospace;font-weight:700;cursor:pointer;-webkit-appearance:none">'
-      +'<div style="font-size:11px;opacity:.7">NO</div>'
-      +'<div style="font-size:18px;margin-top:2px">'+nO+'¢</div>'
-      +'</button>'
-      +'</div></div>';
-  }).join('');
+  // Simple bulletproof card render
+  const ts = Date.now();
+  let html = '';
+  for (const m of pageFiltered) {
+    const yes = m.yes_bid || 50;
+    const no  = m.no_bid  || (100 - yes);
+    const yC  = yes>=60?'#00e5a0':yes>=40?'#f5a623':'#ff4455';
+    const nC  = no>=60?'#00e5a0':no>=40?'#f5a623':'#ff4455';
+    const title = (m.title||m.ticker||'Unknown').slice(0,75);
+    let settle = '';
+    if (m.close_time) {
+      const ms = new Date(m.close_time).getTime() - ts;
+      if (ms > 0) {
+        const h = Math.floor(ms/3600000);
+        const d = Math.floor(h/24);
+        settle = d>0 ? ' · '+d+'d' : h>0 ? ' · '+h+'h' : ' · <1h';
+      }
+    }
+    const vol = m.volume_24h>0 ? '24h: '+Math.round(m.volume_24h) : m.volume>0 ? 'Vol: '+Math.round(m.volume) : '';
+    html += '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-radius:8px;padding:12px;margin-bottom:8px">'
+      + '<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:4px">'+title+'</div>'
+      + '<div style="font-size:9px;color:#444870;margin-bottom:10px">'+vol+settle+'</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      + '<button data-ticker="'+m.ticker+'" data-price="'+yes+'" data-side="yes" onclick="trade(this.dataset.ticker,this.dataset.side,parseInt(this.dataset.price))" style="padding:10px;border-radius:5px;border:1px solid '+yC+'55;background:'+yC+'18;color:'+yC+';font-family:monospace;font-weight:700;font-size:13px;cursor:pointer;-webkit-appearance:none">YES<br>'+yes+'¢</button>'
+      + '<button data-ticker="'+m.ticker+'" data-price="'+no+'" data-side="no" onclick="trade(this.dataset.ticker,this.dataset.side,parseInt(this.dataset.price))" style="padding:10px;border-radius:5px;border:1px solid '+nC+'55;background:'+nC+'18;color:'+nC+';font-family:monospace;font-weight:700;font-size:13px;cursor:pointer;-webkit-appearance:none">NO<br>'+no+'¢</button>'
+      + '</div></div>';
+  }
+  el.innerHTML = html || '<div class="empty">No markets found</div>';
 
   // Load more button
   const remaining=filtered.length-marketPage*PAGE_SIZE;
