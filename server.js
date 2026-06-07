@@ -18,41 +18,34 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ─── Environment variables (set in Railway → Variables) ───────────────────────
+function normalizePrivKey(k) {
+  if (!k) return '';
+  const NL = String.fromCharCode(10);
+  // Convert literal backslash-n to real newline
+  k = k.split('\\n').join(NL);
+  // If still no newlines, insert them
+  if (k.indexOf(NL) === -1) {
+    k = k
+      .split('-----BEGIN PRIVATE KEY-----').join('-----BEGIN PRIVATE KEY-----' + NL)
+      .split('-----END PRIVATE KEY-----').join(NL + '-----END PRIVATE KEY-----')
+      .split('-----BEGIN RSA PRIVATE KEY-----').join('-----BEGIN RSA PRIVATE KEY-----' + NL)
+      .split('-----END RSA PRIVATE KEY-----').join(NL + '-----END RSA PRIVATE KEY-----');
+    var parts = k.split(NL);
+    var out = parts.map(function(p) {
+      if (p.indexOf('-----') === 0) return p;
+      var chunks = [];
+      for (var i = 0; i < p.length; i += 64) chunks.push(p.slice(i, i + 64));
+      return chunks.join(NL);
+    });
+    k = out.join(NL);
+  }
+  return k.trim();
+}
+
 const ENV = {
   KALSHI_KEY_ID: process.env.KALSHI_KEY_ID || '',
-  // Normalize private key — Railway may strip or escape line breaks
-  KALSHI_PRIVATE_KEY: (()=>{
-    let k = process.env.KALSHI_PRIVATE_KEY || '';
-    if (!k) return '';
-    // Replace literal 
- with real newlines
-    k = k.replace(/\n/g, '
-');
-    // If key has no newlines at all, reformat it
-    if (!k.includes('
-')) {
-      k = k
-        .replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN PRIVATE KEY-----
-')
-        .replace('-----END PRIVATE KEY-----',   '
------END PRIVATE KEY-----')
-        .replace('-----BEGIN RSA PRIVATE KEY-----', '-----BEGIN RSA PRIVATE KEY-----
-')
-        .replace('-----END RSA PRIVATE KEY-----',   '
------END RSA PRIVATE KEY-----');
-      // Add newlines every 64 chars in the base64 body
-      const lines = k.split('
-');
-      const fixed = lines.map(l => {
-        if (l.startsWith('-----')) return l;
-        return l.match(/.{1,64}/g)?.join('
-') || l;
-      });
-      k = fixed.join('
-');
-    }
-    return k;
-  })(),
+  // Normalize private key — Railway strips line breaks when pasting
+  KALSHI_PRIVATE_KEY: normalizePrivKey(process.env.KALSHI_PRIVATE_KEY || ''),
 };
 
 const KALSHI_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
