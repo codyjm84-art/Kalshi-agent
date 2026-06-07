@@ -1094,9 +1094,14 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
     3. Railway redeploys in ~30 seconds → refresh this page → tap START
   </div>
   <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px" id="cat-bar"></div>
+  <div style="margin-bottom:8px">
+    <input id="mkt-search" class="inp" style="margin-bottom:0" placeholder="🔍 Search markets…"
+      oninput="searchMarkets(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off"/>
+  </div>
   <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center">
     <div style="font-size:9px;color:#444870;flex:1" id="mkt-count"></div>
-    <button onclick="sortBy('volume')" id="sort-vol" style="padding:3px 8px;font-size:9px;border-radius:3px;border:1px solid #4a9eff66;background:#4a9eff18;color:#4a9eff;font-family:monospace;cursor:pointer">↓ Vol</button>
+    <button onclick="sortBy('settlement')" id="sort-set" style="padding:3px 8px;font-size:9px;border-radius:3px;border:1px solid #4a9eff66;background:#4a9eff18;color:#4a9eff;font-family:monospace;cursor:pointer">⏱ Soon</button>
+    <button onclick="sortBy('volume')" id="sort-vol" style="padding:3px 8px;font-size:9px;border-radius:3px;border:1px solid #252850;background:transparent;color:#555;font-family:monospace;cursor:pointer">↓ Vol</button>
     <button onclick="sortBy('odds')" id="sort-odds" style="padding:3px 8px;font-size:9px;border-radius:3px;border:1px solid #252850;background:transparent;color:#555;font-family:monospace;cursor:pointer">50/50</button>
     <button onclick="sortBy('hot')" id="sort-hot" style="padding:3px 8px;font-size:9px;border-radius:3px;border:1px solid #252850;background:transparent;color:#555;font-family:monospace;cursor:pointer">🔥</button>
   </div>
@@ -1194,6 +1199,10 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
 
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
+let marketPage = 1;
+const PAGE_SIZE = 50;
+let searchQuery = '';
+
 let state = {
 let state = {
   running:false, balance:0, pnl:0, secured:0, slHits:0,
@@ -1295,7 +1304,7 @@ function buildCatBar(){
     +'color:'+(c===activeCategory?'#4a9eff':'#555')+'">'+c+'</button>').join('');
 }
 
-function filterCat(cat){activeCategory=cat;buildCatBar();renderMarkets();}
+function filterCat(cat){marketPage=1;searchQuery='';const s=$('mkt-search');if(s)s.value='';activeCategory=cat;buildCatBar();renderMarkets();}
 
 function renderMarkets(){
   const el=$('markets-list');if(!el)return;
@@ -1334,17 +1343,31 @@ function renderMarkets(){
 
   if(!filtered.length){el.innerHTML='<div class="empty">NO '+activeCategory.toUpperCase()+' MARKETS<br><br>Tap ↺ Markets in Settings</div>';return;}
 
-  el.innerHTML=filtered.slice(0,80).map(m=>{
+  // Apply search filter
+  if(searchQuery){
+    const q=searchQuery.toLowerCase();
+    filtered=filtered.filter(m=>(m.title||m.ticker||'').toLowerCase().includes(q));
+  }
+
+  const total=filtered.length;
+  const pageFiltered=filtered.slice(0,marketPage*PAGE_SIZE);
+  const countEl=$('mkt-count');
+  if(countEl)countEl.textContent=pageFiltered.length+' of '+total+' markets'+(searchQuery?' (filtered)':'');
+  $('bm').textContent=total;
+
+  el.innerHTML=pageFiltered.map(m=>{
     const yO=m.yes_bid||50;
     const nO=m.no_bid||(100-yO);
     const yC=yO>=60?'#00e5a0':yO>=40?'#f5a623':'#ff4455';
     const nC=nO>=60?'#00e5a0':nO>=40?'#f5a623':'#ff4455';
     const q = (m.title||m.ticker||'').slice(0,80);
-    const vol=m.volume_24h>0?'24h: '+m.volume_24h.toFixed(0)+' contracts':m.volume>0?'Vol: '+m.volume.toFixed(0):''; 
+    const vol=m.volume_24h>0?'24h: '+m.volume_24h.toFixed(0)+' contracts':m.volume>0?'Vol: '+m.volume.toFixed(0):'';
+    let settleStr='';
+    if(m.close_time){const ms2=new Date(m.close_time).getTime()-now;if(ms2>0){const hrs2=Math.floor(ms2/3600000);const days2=Math.floor(hrs2/24);if(days2>0)settleStr=' · '+days2+'d';else if(hrs2>0)settleStr=' · '+hrs2+'h ⏱';else settleStr=' · <1h ⏱';}}
     const hot=yO>=65?'<span style="font-size:8px;background:#00e5a022;color:#00e5a0;border:1px solid #00e5a044;border-radius:3px;padding:1px 5px;margin-left:5px">HOT</span>':'';
     return '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-radius:8px;padding:12px;margin-bottom:8px">'
       +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;line-height:1.4;margin-bottom:4px">'+q+hot+'</div>'
-      +'<div style="font-size:9px;color:#444870;margin-bottom:10px">'+vol+'</div>'
+      +'<div style="font-size:9px;color:#444870;margin-bottom:10px">'+vol+settleStr+'</div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
       +'<button data-ticker="'+m.ticker+'" data-price="'+yO+'" data-side="yes" onclick="trade(this.dataset.ticker,this.dataset.side,parseInt(this.dataset.price))"'
       +' style="padding:12px 6px;border-radius:6px;border:1px solid '+yC+'55;background:'+yC+'18;color:'+yC+';font-family:monospace;font-weight:700;cursor:pointer;-webkit-appearance:none">'
@@ -1358,17 +1381,43 @@ function renderMarkets(){
       +'</button>'
       +'</div></div>';
   }).join('');
+
+  // Load more button
+  const remaining=filtered.length-marketPage*PAGE_SIZE;
+  if(remaining>0){
+    el.innerHTML+='<button onclick="loadMoreMarkets()" style="width:100%;padding:12px;margin-top:8px;border-radius:6px;border:1px solid #4a9eff44;background:#4a9eff11;color:#4a9eff;font-family:monospace;font-size:12px;cursor:pointer;-webkit-appearance:none">Load '+Math.min(PAGE_SIZE,remaining)+' more ('+remaining+' remaining)</button>';
+  }
+}
+
+function searchMarkets(q){
+  searchQuery=q;
+  marketPage=1;
+  renderMarkets();
+}
+
+function loadMoreMarkets(){
+  marketPage++;
+  renderMarkets();
+  // Scroll to bottom of markets list
+  const el=$('markets-list');
+  if(el)el.lastElementChild?.scrollIntoView({behavior:'smooth'});
 }
 
 function sortBy(by){
-  ['vol','odds','hot'].forEach(s=>{
+  ['vol','odds','hot','set'].forEach(s=>{
     const b=$('sort-'+s);if(!b)return;
-    const on=(s==='vol'&&by==='volume')||(s===by);
+    const on=(s==='vol'&&by==='volume')||(s==='set'&&by==='settlement')||(s===by);
     b.style.borderColor=on?'#4a9eff66':'#252850';
     b.style.background=on?'#4a9eff18':'transparent';
     b.style.color=on?'#4a9eff':'#555';
   });
-  if(by==='volume')state.markets.sort((a,b)=>(b.volume||0)-(a.volume||0));
+  const FF=new Date('2099-01-01').getTime();
+  if(by==='settlement')state.markets.sort((a,b)=>{
+    const ta=a.close_time?new Date(a.close_time).getTime():FF;
+    const tb=b.close_time?new Date(b.close_time).getTime():FF;
+    return ta-tb;
+  });
+  else if(by==='volume')state.markets.sort((a,b)=>(b.volume||0)-(a.volume||0));
   else if(by==='odds')state.markets.sort((a,b)=>Math.abs((a.yes_bid||50)-50)-Math.abs((b.yes_bid||50)-50));
   else if(by==='hot')state.markets.sort((a,b)=>(b.volume||0)*Math.abs((b.yes_bid||50)-50)-(a.volume||0)*Math.abs((a.yes_bid||50)-50));
   renderMarkets();
