@@ -159,14 +159,12 @@ async function loadMarkets() {
   try {
     setStatus('Loading markets…');
     // Public endpoint — no auth required
-    const res  = await fetch(`${KALSHI_BASE}/markets?limit=200&status=open&cursor=`);
+    const res  = await fetch(`${KALSHI_BASE}/markets?limit=1000&status=open`);
     const data = await res.json();
-    const allKW = state.settings.categories.flatMap(c => CAT_KW[c] || []);
+    // Keep all active markets — dashboard handles category filtering
     state.markets = (data.markets || []).filter(m => {
       const yes = m.yes_bid || m.last_price || 50;
-      if (yes < state.settings.minOdds || yes > 100 - state.settings.minOdds) return false;
-      const text = (m.title || m.ticker || '').toLowerCase();
-      return allKW.some(k => text.includes(k));
+      return yes >= state.settings.minOdds && yes <= 100 - state.settings.minOdds;
     });
     broadcast('markets', state.markets.slice(0, 100));
     setStatus(`${state.markets.length} markets loaded`);
@@ -711,7 +709,7 @@ function renderMarkets(){
   const el=$('markets-list');if(!el)return;
   const allKW=Object.values(CAT_KW).flat();
   let filtered=activeCategory==='All'
-    ?state.markets.filter(m=>{const t=(m.title||m.ticker||'').toLowerCase();return allKW.some(k=>t.includes(k));})
+    ?state.markets  // Show all markets when All is selected
     :state.markets.filter(m=>{const t=(m.title||m.ticker||'').toLowerCase();return(CAT_KW[activeCategory]||[]).some(k=>t.includes(k));});
 
   $('mkt-count').textContent=filtered.length+' markets';
