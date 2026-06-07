@@ -1444,6 +1444,7 @@ document.addEventListener('DOMContentLoaded', function(){
         updateStats();
         renderOrders();
         renderModel();
+        renderSignals();
         updateAgentBtn();
         // Re-render markets to show updated prices
         if(d.markets&&d.markets.length){
