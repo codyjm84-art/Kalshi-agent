@@ -83,6 +83,10 @@ const state = {
   markets:   [],
   marketsUpdated: null,
   followedTraders: [],
+  autoTrade: false,          // master auto-trade switch
+  signals:   [],             // detected trade signals
+  autoLog:   [],             // auto-trade activity log
+  priceHistory: {},          // ticker -> [price, price, ...] for momentum
   settings: {
     minOdds:    35,
     stopLoss:   0.30,
@@ -370,6 +374,145 @@ function runOptimizer() {
   setStatus(`Model updated: ${best.maxOpen} positions · ${(best.copyPct*100).toFixed(1)}% · ${best.successRate}% success`);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RULES-BASED AUTO TRADING ENGINE
+// Signals: volume spike, price momentum, smart money flow, value play
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function detectSignals(markets) {
+  const signals = [];
+  const now = Date.now();
+
+  // Compute averages across all markets for comparison
+  const vols   = markets.map(m => m.volume_24h || 0).filter(v => v > 0);
+  const avgVol = vols.length ? vols.reduce((a,b)=>a+b,0)/vols.length : 0;
+
+  for (const m of markets) {
+    const yes    = m.yes_bid || 50;
+    const no     = m.no_bid  || 50;
+    const vol24  = m.volume_24h || 0;
+    const vol    = m.volume    || 0;
+    const ticker = m.ticker;
+
+    // Track price history for momentum detection
+    if (!state.priceHistory[ticker]) state.priceHistory[ticker] = [];
+    const hist = state.priceHistory[ticker];
+    hist.push({ yes, ts: now });
+    if (hist.length > 20) hist.shift(); // keep last 20 readings
+
+    // ── Signal 1: VOLUME SPIKE ────────────────────────────────────────────────
+    // Market volume is 3x above average — informed trading likely
+    if (vol24 > avgVol * 3 && vol24 > 50 && yes >= state.settings.minOdds && yes <= 75) {
+      signals.push({
+        ticker, side: 'yes', price: yes,
+        type:   'VOLUME_SPIKE',
+        reason: `24h volume ${vol24.toFixed(0)} is ${(vol24/Math.max(avgVol,1)).toFixed(1)}x avg`,
+        score:  Math.min(100, Math.round((vol24/Math.max(avgVol,1))*20)),
+        market: m,
+      });
+    }
+
+    // ── Signal 2: PRICE MOMENTUM ──────────────────────────────────────────────
+    // Price moved 5+ cents in same direction over last 5 readings
+    if (hist.length >= 5) {
+      const recent  = hist.slice(-5).map(h => h.yes);
+      const oldest  = recent[0];
+      const newest  = recent[recent.length-1];
+      const moved   = newest - oldest;
+      const allUp   = recent.every((v,i) => i===0 || v >= recent[i-1]);
+      const allDown = recent.every((v,i) => i===0 || v <= recent[i-1]);
+
+      // Strong upward momentum on YES — price rising consistently
+      if (moved >= 5 && allUp && newest >= state.settings.minOdds && newest <= 70) {
+        signals.push({
+          ticker, side: 'yes', price: newest,
+          type:   'MOMENTUM_UP',
+          reason: `YES price rose ${moved}¢ consistently (${oldest}¢ → ${newest}¢)`,
+          score:  Math.min(100, moved * 8),
+          market: m,
+        });
+      }
+      // Strong downward momentum on YES — NO side gaining value
+      if (moved <= -5 && allDown && no >= state.settings.minOdds && no <= 70) {
+        signals.push({
+          ticker, side: 'no', price: no,
+          type:   'MOMENTUM_DOWN',
+          reason: `NO value rising — YES fell ${Math.abs(moved)}¢ consistently`,
+          score:  Math.min(100, Math.abs(moved) * 8),
+          market: m,
+        });
+      }
+    }
+
+    // ── Signal 3: VALUE PLAY ──────────────────────────────────────────────────
+    // YES price is unusually low (underpriced) with high volume backing it
+    // Suggests market consensus hasn't caught up yet
+    if (yes >= 35 && yes <= 45 && vol24 > avgVol * 1.5) {
+      signals.push({
+        ticker, side: 'yes', price: yes,
+        type:   'VALUE_PLAY',
+        reason: `Underpriced YES at ${yes}¢ with above-avg volume ${vol24.toFixed(0)}`,
+        score:  Math.round((45 - yes) * 3 + (vol24/Math.max(avgVol,1)) * 10),
+        market: m,
+      });
+    }
+
+    // ── Signal 4: SMART MONEY ─────────────────────────────────────────────────
+    // Very high volume on a near-certain outcome (>70¢) — pros piling in
+    if (yes >= 70 && yes <= 85 && vol24 > avgVol * 2) {
+      signals.push({
+        ticker, side: 'yes', price: yes,
+        type:   'SMART_MONEY',
+        reason: `High-conviction YES at ${yes}¢ with ${(vol24/Math.max(avgVol,1)).toFixed(1)}x avg volume`,
+        score:  Math.round(yes * 0.8 + (vol24/Math.max(avgVol,1))*5),
+        market: m,
+      });
+    }
+  }
+
+  // Sort by score descending, dedupe by ticker (keep highest score per market)
+  const seen = new Set();
+  return signals
+    .sort((a,b) => b.score - a.score)
+    .filter(s => { if(seen.has(s.ticker)) return false; seen.add(s.ticker); return true; })
+    .slice(0, 20);
+}
+
+async function runAutoTrading(signals) {
+  if (!state.autoTrade || !signals.length) return;
+  if (state.balance < 0.50) { setStatus('Auto-trade: balance too low'); return; }
+
+  const openCount = state.openOrders.filter(o => o.status === 'open').length;
+  if (openCount >= state.model.maxOpen) return;
+
+  // Take top signal that we haven't already traded
+  const openTickers = new Set(state.openOrders.map(o => o.ticker));
+  const candidate   = signals.find(s => !openTickers.has(s.ticker) && s.score >= 40);
+  if (!candidate) return;
+
+  try {
+    setStatus(`Auto-trade: ${candidate.type} on ${candidate.ticker} (score ${candidate.score})`);
+    await placeOrder(candidate.ticker, candidate.side, candidate.price);
+
+    const logEntry = {
+      ts:     Date.now(),
+      type:   candidate.type,
+      ticker: candidate.ticker,
+      side:   candidate.side,
+      price:  candidate.price,
+      score:  candidate.score,
+      reason: candidate.reason,
+    };
+    state.autoLog.unshift(logEntry);
+    state.autoLog = state.autoLog.slice(0, 50);
+    broadcast('auto_trade', logEntry);
+    setStatus(`Auto-trade placed: ${candidate.side.toUpperCase()} ${candidate.ticker}`);
+  } catch(e) {
+    logError('Auto-trade failed: ' + e.message);
+  }
+}
+
 // ─── Main agent tick (every 15 seconds) ──────────────────────────────────────
 async function agentTick() {
   if (!state.running) return;
@@ -379,6 +522,14 @@ async function agentTick() {
     checkProfitPull();
     await checkStopLosses();
     runOptimizer();
+
+    // Detect signals and run auto-trading
+    if (state.markets.length > 0) {
+      state.signals = detectSignals(state.markets);
+      broadcast('signals', state.signals.slice(0, 10));
+      await runAutoTrading(state.signals);
+    }
+
     broadcast('tick', {
       balance: state.balance,
       pnl:     state.pnl,
@@ -403,6 +554,8 @@ app.get('/api/debug', (req, res) => res.json({
   nodeVersion:  process.version,
   uptime:       Math.floor(process.uptime())+'s',
 }));
+
+app.get('/api/signals', (req, res) => res.json({ signals: state.signals, autoLog: state.autoLog }));
 
 app.get('/api/state', (req, res) => res.json({
   ...state,
@@ -433,7 +586,8 @@ app.post('/api/agent/stop', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-  const { minOdds, stopLoss, pullTarget, resetTo, autoCopy, categories } = req.body;
+  const { minOdds, stopLoss, pullTarget, resetTo, autoCopy, autoTrade, categories } = req.body;
+  if (autoTrade !== undefined) state.autoTrade = autoTrade;
   if (minOdds    !== undefined) state.settings.minOdds    = minOdds;
   if (stopLoss   !== undefined) state.settings.stopLoss   = stopLoss;
   if (pullTarget !== undefined) state.settings.pullTarget = pullTarget;
@@ -584,6 +738,7 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
 
 <div class="tabbar">
   <button class="tab active" onclick="switchTab('markets',this)">Markets<span class="badge" id="bm">0</span></button>
+  <button class="tab" onclick="switchTab('signals',this)">Signals<span class="badge" id="bsig">0</span></button>
   <button class="tab" onclick="switchTab('orders',this)">Orders<span class="badge" id="bo">0</span></button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
 </div>
@@ -610,6 +765,21 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
 </div>
 
 <!-- ORDERS -->
+<div id="panel-signals" class="panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="font-size:10px;color:#444870;letter-spacing:1px;text-transform:uppercase">Auto-Trading Signals</div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <span style="font-size:10px;color:#666">Auto-trade</span>
+      <button class="tog" id="auto-tog" onclick="toggleAutoTrade()" style="background:#252850"><div class="tok" style="left:2px"></div></button>
+    </div>
+  </div>
+  <div id="auto-log-section" style="margin-bottom:12px;display:none">
+    <div style="font-size:9px;color:#00e5a0;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Recent Auto-Trades</div>
+    <div id="auto-log-list"></div>
+  </div>
+  <div style="font-size:9px;color:#444870;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Live Signals</div>
+  <div id="signals-list"><div class="empty">START agent to detect signals</div></div>
+</div>
 <div id="panel-orders" class="panel">
   <div id="orders-list"><div class="empty">NO ORDERS YET</div></div>
 </div>
@@ -726,6 +896,8 @@ function handle(msg){
   else if(ev==='profit_pull'){flash('success','💰 Profit pulled: $'+d.pulled+' · Secured: $'+d.total.toFixed(2));state.secured=d.total;updateStats();}
   else if(ev==='sl_hit'){flash('warn','SL hit: '+d.order.ticker+' · recovered $'+d.recovered);state.slHits=(state.slHits||0)+1;updateStats();}
   else if(ev==='error'){addError(d);flash('error',d.slice(0,60));}
+  else if(ev==='signals'){state.signals=d;renderSignals();}
+  else if(ev==='auto_trade'){if(!state.autoLog)state.autoLog=[];state.autoLog.unshift(d);flash('success','🤖 Auto: '+d.side.toUpperCase()+' '+d.ticker);renderSignals();}
   else if(ev==='settings'){state.settings=d;applySettings();}
 }
 
@@ -735,6 +907,9 @@ function mergeState(d){
   if(d.config)state.config=d.config;
   if(d.model)state.model=d.model;
   if(d.marketsUpdated)state.marketsUpdated=d.marketsUpdated;
+  if(d.signals)state.signals=d.signals;
+  if(d.autoLog)state.autoLog=d.autoLog;
+  if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
   if(d.settings)state.settings=d.settings;
 }
 
@@ -742,6 +917,9 @@ function mergeState(d){
 function renderAll(){
   updateStats();renderMarkets();renderOrders();renderModel();applySettings();
   updateAgentBtn();
+  renderSignals();
+  const at=$('auto-tog');
+  if(at){const k=at.querySelector('.tok');at.style.background=state.autoTrade?'#00e5a0':'#252850';if(k)k.style.left=state.autoTrade?'19px':'2px';}
   if(!state.config?.hasKeys){
     $('no-keys-warn').style.display='block';
     $('status-bar').textContent='● Add KALSHI_KEY_ID and KALSHI_PRIVATE_KEY in Railway → Variables';
@@ -921,6 +1099,33 @@ async function toggleAgent(){
   flash(!r?'success':'warn',!r?'Agent started · trading 24/7':'Agent stopped');
 }
 
+async function toggleAutoTrade(){
+  const v=!state.autoTrade;
+  const r=await apiPost('/api/settings',{autoTrade:v});
+  if(r.ok){state.autoTrade=v;const t=$('auto-tog'),k=t.querySelector('.tok');t.style.background=v?'#00e5a0':'#252850';k.style.left=v?'19px':'2px';flash(v?'success':'warn',v?'Auto-trading ON':'Auto-trading OFF');}
+}
+function renderSignals(){
+  const el=$('signals-list');if(!el)return;
+  const sigs=state.signals||[];
+  const b=$('bsig');if(b)b.textContent=sigs.length;
+  const IC={VOLUME_SPIKE:'📊',MOMENTUM_UP:'📈',MOMENTUM_DOWN:'📉',VALUE_PLAY:'💎',SMART_MONEY:'🐋'};
+  const LB={VOLUME_SPIKE:'Volume Spike',MOMENTUM_UP:'Momentum ↑',MOMENTUM_DOWN:'Momentum ↓',VALUE_PLAY:'Value Play',SMART_MONEY:'Smart Money'};
+  const CL={VOLUME_SPIKE:'#4a9eff',MOMENTUM_UP:'#00e5a0',MOMENTUM_DOWN:'#00e5a0',VALUE_PLAY:'#f5a623',SMART_MONEY:'#ffd700'};
+  if(!sigs.length){el.innerHTML='<div class="empty">NO SIGNALS YET<br><br><small style="color:#333">Needs a few minutes of price history</small></div>';return;}
+  el.innerHTML=sigs.map(s=>{
+    const c=CL[s.type]||'#888';
+    return '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-left:3px solid '+c+';border-radius:7px;padding:12px;margin-bottom:8px">'
+      +'<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="font-size:10px;font-weight:700;color:'+c+'">'+(IC[s.type]||'')+ ' '+(LB[s.type]||s.type)+'</span>'
+      +'<span style="font-size:11px;font-weight:700;color:'+(s.score>=70?'#ffd700':s.score>=50?'#00e5a0':'#f5a623')+'">'+s.score+' pts</span></div>'
+      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+(s.market&&s.market.title?s.market.title:s.ticker).slice(0,65)+'</div>'
+      +'<div style="font-size:9px;color:#888;margin-bottom:8px">'+s.reason+'</div>'
+      +'<button data-t="'+s.ticker+'" data-s="'+s.side+'" data-p="'+s.price+'" onclick="trade(this.dataset.t,this.dataset.s,parseInt(this.dataset.p))"'
+      +' style="width:100%;padding:9px;border-radius:5px;border:1px solid '+c+'55;background:'+c+'18;color:'+c+';font-family:monospace;font-weight:700;cursor:pointer;font-size:12px">'
+      +s.side.toUpperCase()+' '+s.price+'¢ — '+s.ticker+'</button></div>';
+  }).join('');
+  const al=state.autoLog||[],ls=$('auto-log-section'),ll=$('auto-log-list');
+  if(al.length&&ls){ls.style.display='block';if(ll)ll.innerHTML=al.slice(0,5).map(l=>'<div style="background:#060e08;border:1px solid #00e5a022;border-radius:5px;padding:8px 12px;margin-bottom:5px;font-size:10px"><b style="color:#00e5a0">'+l.side.toUpperCase()+' '+l.price+'¢</b> <span style="color:#888">'+l.ticker+'</span> <span style="font-size:9px;color:#4a9eff">'+l.type+'</span><div style="color:#555;font-size:9px;margin-top:2px">'+l.reason.slice(0,55)+'</div></div>').join('');}
+}
 async function trade(ticker,side,price){
   if(!state.running){flash('error','Start the agent first');return;}
   const res=await apiPost('/api/trade',{ticker,side,price});
