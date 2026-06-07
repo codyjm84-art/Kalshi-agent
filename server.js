@@ -257,13 +257,15 @@ async function placeOrder(ticker, side, priceInCents) {
   const noPrice  = side === 'no'  ? priceInCents : 100 - priceInCents;
   const intCount = Math.max(1, Math.floor(count));
 
-  // Kalshi v2 order body — exact spec
+  // Kalshi v2 order body — action is required
   const body = {
     ticker,
+    action:          'buy',
+    action:          'buy',
     type:            'limit',
     side,
     count:           intCount,
-    yes_price:       yesPrice,    // integer cents e.g. 41 for 41¢
+    yes_price:       yesPrice,
     expiration_ts:   Math.floor(Date.now() / 1000) + 86400,
     client_order_id: Date.now().toString(),
   };
