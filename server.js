@@ -239,6 +239,11 @@ async function loadMarkets() {
 
     state.markets = markets;
     state.marketsUpdated = new Date().toISOString();
+    // Detect signals immediately after market load
+    if (state.markets.length > 0) {
+      state.signals = detectSignals(state.markets);
+      broadcast('signals', state.signals);
+    }
     broadcast('markets', state.markets.slice(0, 200));
     broadcast('markets_updated', state.marketsUpdated);
   } catch(e) {
@@ -797,7 +802,9 @@ app.get('/api/state', (req, res) => {
   dedupeOrders(); // always return clean deduplicated orders
   res.json({
   ...state,
-  config: { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
+  config:  { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
+  signals: state.signals || [],
+  autoLog: state.autoLog || [],
   });
 });
 
