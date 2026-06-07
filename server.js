@@ -520,8 +520,11 @@ async function syncKalshiPositions() {
     const data = await kalFetch('GET', '/portfolio/positions');
     // Log raw response keys to diagnose field names
     console.log('[Positions] response keys:', Object.keys(data));
-    console.log('[Positions] first item:', JSON.stringify((Object.values(data)[0]||[])[0]||{}).slice(0,200));
-    const positions = data.positions || data.market_positions || data.event_positions || [];
+    console.log('[market_positions count]:', (data.market_positions||[]).length);
+    console.log('[market_positions first]:', JSON.stringify((data.market_positions||[])[0]||{}).slice(0,300));
+    console.log('[event_positions count]:', (data.event_positions||[]).length);
+    console.log('[event_positions first]:', JSON.stringify((data.event_positions||[])[0]||{}).slice(0,300));
+    const positions = data.market_positions || data.event_positions || [];
     for (const pos of positions) {
       const ticker = pos.ticker || pos.market_ticker;
       if (!ticker) continue;
