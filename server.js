@@ -780,6 +780,7 @@ app.get('/api/signals', (req, res) => res.json({ signals: state.signals, autoLog
 
 app.get('/api/state', (req, res) => {
   dedupeOrders(); // always return clean deduplicated orders
+  console.log('[State] orderLog:', state.orderLog.map(o=>o.ticker+'='+o.status+'(pnl:'+o.pnl+')').join(', '));
   res.json({
   ...state,
   config: { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
