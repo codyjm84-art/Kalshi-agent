@@ -175,16 +175,16 @@ async function loadMarkets() {
     // Try events endpoint first (has readable titles + categories)
     let markets = [];
     try {
-      // Fetch multiple pages to get more markets
+      // Paginate through ALL events — target 3000+ markets
       let allEvents = [];
-      for (let cursor = ''; ; ) {
-        const url = '/events?limit=200&status=open&with_nested_markets=true' + (cursor ? '&cursor='+cursor : '');
+      let cursor = '';
+      for (let page = 0; page < 20; page++) {
+        const url = '/events?limit=200&status=open&with_nested_markets=true' + (cursor ? '&cursor='+encodeURIComponent(cursor) : '');
         const evRes = await kalFetch('GET', url);
         const batch = evRes.events || [];
         allEvents = allEvents.concat(batch);
-        if (!evRes.cursor || batch.length < 200) break; // no more pages
+        if (!evRes.cursor || batch.length < 200) break;
         cursor = evRes.cursor;
-        if (allEvents.length >= 1000) break; // safety cap
       }
       for (const ev of allEvents) {
         const evTitle = ev.title || ev.event_ticker || '';
@@ -209,7 +209,7 @@ async function loadMarkets() {
     } catch(evErr) {
       // Fallback: markets endpoint only has yes_sub_title as the question
       logError('Events fallback: ' + evErr.message);
-      const mRes = await kalFetch('GET', '/markets?limit=2000&status=open');
+      const mRes = await kalFetch('GET', '/markets?limit=5000&status=open');
       const raw = mRes.markets || [];
       markets = raw
         .filter(m => {
@@ -514,6 +514,60 @@ async function runAutoTrading(signals) {
 }
 
 // ─── Main agent tick (every 15 seconds) ──────────────────────────────────────
+async function syncKalshiPositions() {
+  // Sync positions placed directly on Kalshi website
+  try {
+    const data = await kalFetch('GET', '/portfolio/positions');
+    const positions = data.positions || data.market_positions || [];
+    for (const pos of positions) {
+      const ticker = pos.ticker || pos.market_ticker;
+      if (!ticker) continue;
+      const alreadyTracked = state.openOrders.find(o => o.ticker === ticker && o.status === 'open');
+      if (!alreadyTracked && (pos.position || pos.resting_orders_count > 0)) {
+        // Position exists on Kalshi but not in our log — add it
+        const entry = {
+          id:       pos.market_id || ticker,
+          ticker,
+          side:     pos.position > 0 ? 'yes' : 'no',
+          stake:    Math.abs(parseFloat(pos.total_cost || pos.position || 0)),
+          price:    pos.yes_price || 50,
+          count:    Math.abs(pos.position || 1),
+          ts:       Date.now(),
+          status:   'open',
+          synced:   true, // flagged as externally placed
+        };
+        state.openOrders.push(entry);
+        state.orderLog.unshift(entry);
+        state.orderLog = state.orderLog.slice(0, 100);
+        broadcast('order', entry);
+      }
+    }
+    // Also sync filled orders
+    const fills = await kalFetch('GET', '/portfolio/fills?limit=50');
+    const fillList = fills.fills || [];
+    for (const f of fillList) {
+      const ticker = f.ticker || f.market_ticker;
+      const alreadyTracked = state.orderLog.find(o => o.id === f.fill_id || o.id === f.order_id);
+      if (!alreadyTracked && ticker) {
+        const entry = {
+          id:     f.fill_id || f.order_id || ticker+'-'+Date.now(),
+          ticker,
+          side:   f.side || 'yes',
+          stake:  parseFloat(f.count || 1) * parseFloat(f.yes_price || 50) / 100,
+          price:  parseFloat(f.yes_price || 50),
+          count:  parseFloat(f.count || 1),
+          ts:     new Date(f.created_time || Date.now()).getTime(),
+          status: 'filled',
+          synced: true,
+        };
+        state.orderLog.unshift(entry);
+        state.orderLog = state.orderLog.slice(0, 100);
+        broadcast('order', entry);
+      }
+    }
+  } catch(e) { /* silent — positions sync is best-effort */ }
+}
+
 async function agentTick() {
   if (!state.running) return;
   state.lastTick = new Date().toISOString();
@@ -521,6 +575,7 @@ async function agentTick() {
     await loadBalance();
     checkProfitPull();
     await checkStopLosses();
+    await syncKalshiPositions(); // sync externally placed orders
     runOptimizer();
 
     // Detect signals and run auto-trading
@@ -1127,7 +1182,7 @@ function renderSignals(){
   if(al.length&&ls){ls.style.display='block';if(ll)ll.innerHTML=al.slice(0,5).map(l=>'<div style="background:#060e08;border:1px solid #00e5a022;border-radius:5px;padding:8px 12px;margin-bottom:5px;font-size:10px"><b style="color:#00e5a0">'+l.side.toUpperCase()+' '+l.price+'¢</b> <span style="color:#888">'+l.ticker+'</span> <span style="font-size:9px;color:#4a9eff">'+l.type+'</span><div style="color:#555;font-size:9px;margin-top:2px">'+l.reason.slice(0,55)+'</div></div>').join('');}
 }
 async function trade(ticker,side,price){
-  if(!state.running){flash('error','Start the agent first');return;}
+  if(!ticker){flash('error','Invalid market');return;}
   const res=await apiPost('/api/trade',{ticker,side,price});
   if(res.error)flash('error',res.error.slice(0,60));
   else flash('success',side.toUpperCase()+' '+ticker+' · $'+res.result?.order?.remaining_count||'?');
@@ -1253,10 +1308,10 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`KALSHI_PRIVATE_KEY set: ${!!ENV.KALSHI_PRIVATE_KEY}`);
 });
 setInterval(agentTick, 15_000);
-// Refresh market prices every 60 seconds automatically
+// Refresh market prices every 15 seconds (same as agent tick)
 setInterval(async () => {
   if (state.running) await loadMarkets();
-}, 60_000);
+}, 15_000);
 
 // Pre-load markets on boot
 setTimeout(async () => {
