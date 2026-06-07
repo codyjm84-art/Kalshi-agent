@@ -253,25 +253,34 @@ async function placeOrder(ticker, side, priceInCents) {
   const stake = Math.max(0.01, +(state.balance * state.model.copyPct).toFixed(2));
   const count = Math.max(1, Math.floor(stake * 100 / priceInCents));
 
+  const yesPrice = side === 'yes' ? priceInCents : 100 - priceInCents;
+  const noPrice  = side === 'no'  ? priceInCents : 100 - priceInCents;
+  const intCount = Math.max(1, Math.floor(count));
+
   const body = {
     ticker,
-    action:        'buy',
-    type:          'limit',
+    action:          'buy',
+    type:            'limit',
     side,
-    count,
-    yes_price:     side === 'yes' ? priceInCents : 100 - priceInCents,
-    no_price:      side === 'no'  ? priceInCents : 100 - priceInCents,
-    expiration_ts: Math.floor(Date.now() / 1000) + 86400, // 24h expiry
+    count:           intCount,
+    yes_price:       yesPrice,
+    no_price:        noPrice,
+    expiration_ts:   Math.floor(Date.now() / 1000) + 86400,
+    client_order_id: Date.now().toString(),
   };
 
-  const data = await kalFetch('POST', '/portfolio/orders', body);
+  console.log('[Order] Placing:', JSON.stringify(body));
+  const data = await kalFetch('POST', '/portfolio/orders', body).catch(e => {
+    console.error('[Order] Error:', e.message);
+    throw e;
+  });
   state.balance -= stake;
 
   const entry = {
     id:     data.order?.order_id || 'unknown',
     ticker, side, stake,
     price:  priceInCents,
-    count,
+    count: intCount,
     ts:     Date.now(),
     status: 'open',
   };
