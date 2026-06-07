@@ -874,6 +874,7 @@ app.post('/api/trade', async (req, res) => {
   }
 });
 
+app.get('/api/signals-data',(req,res)=>res.json({signals:state.signals||[],autoLog:state.autoLog||[],autoTrade:state.autoTrade}));
 app.get('/api/markets', (req, res) => res.json(state.markets));
 app.get('/api/orders',  (req, res) => res.json(state.orderLog));
 app.post('/api/markets/refresh', async (req, res) => {
@@ -1120,10 +1121,11 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
+let state = {
   running:false, balance:0, pnl:0, secured:0, slHits:0,
   markets:[], orderLog:[], errors:[],
-  settings:{pullTarget:78,resetTo:39,minOdds:35,stopLoss:0.30},
-  model:{maxOpen:10,copyPct:0.02,successRate:null,sessionWins:0,sessionLosses:0},
+  signals:[], autoLog:[], autoTrade:false,
+  signals:[], autoLog:[], autoTrade:false,
   config:{hasKeys:false}
 };
 let activeCategory='All';
@@ -1480,6 +1482,13 @@ document.addEventListener('DOMContentLoaded', function(){
           state.orderLog=d.orderLog;
           renderOrders();
           $('bo').textContent=d.orderLog.length;
+        }
+        // Always update and render signals
+        if(d.signals!==undefined){
+          state.signals=d.signals;
+          state.autoLog=d.autoLog||state.autoLog||[];
+          if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
+          renderSignals();
         }
       })
       .catch(()=>{
