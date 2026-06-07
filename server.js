@@ -1663,7 +1663,13 @@ document.addEventListener('DOMContentLoaded', function(){
   // Initial load with retry
   function initialLoad(attempt){
     fetch('/api/state').then(r=>r.json()).then(d=>{
-      mergeState(d);renderAll();
+      mergeState(d);
+      renderAll();
+      // Explicitly render markets if they came back
+      if(d.markets&&d.markets.length){
+        state.markets=d.markets;
+        renderMarkets();
+      }
       setPill('ws-pill','● LIVE','pill-g');
     }).catch(()=>{
       if(attempt<5) setTimeout(()=>initialLoad(attempt+1), 2000);
