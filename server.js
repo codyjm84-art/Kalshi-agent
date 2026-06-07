@@ -204,6 +204,8 @@ async function loadMarkets() {
             volume:     parseFloat(m.volume_fp || 0),
             volume_24h: parseFloat(m.volume_24h_fp || 0),
             category:   cat,
+            close_time: ev.close_time || m.close_time || null,
+            open_interest: parseFloat(m.open_interest_fp||0),
           });
         }
       }
@@ -245,8 +247,6 @@ async function loadMarkets() {
       state.signals=rawSigs_.map(s=>({ticker:s.ticker,side:s.side,price:s.price,type:s.type,reason:s.reason,score:s.score,title:s.market?s.market.title:s.ticker}));
       broadcast('signals',state.signals);
     }
-    const ctCount=state.markets.filter(m=>m.close_time).length;
-    console.log('[Markets] close_time:',ctCount,'of',state.markets.length,'first:',state.markets[0]?state.markets[0].close_time:'none');
     broadcast('markets', state.markets.slice(0, 200));
     broadcast('markets_updated', state.marketsUpdated);
   } catch(e) {
@@ -1539,7 +1539,7 @@ function renderSignals(){
     return '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-left:3px solid '+c+';border-radius:7px;padding:12px;margin-bottom:8px">'
       +'<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="font-size:10px;font-weight:700;color:'+c+'">'+(IC[s.type]||'')+ ' '+(LB[s.type]||s.type)+'</span>'
       +'<span style="font-size:11px;font-weight:700;color:'+(s.score>=70?'#ffd700':s.score>=50?'#00e5a0':'#f5a623')+'">'+s.score+' pts</span></div>'
-      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+(s.market&&s.market.title?s.market.title:s.ticker).slice(0,65)+'</div>'
+      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+(s.title||s.ticker).slice(0,65)+'</div>'
       +'<div style="font-size:9px;color:#888;margin-bottom:8px">'+s.reason+'</div>'
       +'<button data-t="'+s.ticker+'" data-s="'+s.side+'" data-p="'+s.price+'" onclick="trade(this.dataset.t,this.dataset.s,parseInt(this.dataset.p))"'
       +' style="width:100%;padding:9px;border-radius:5px;border:1px solid '+c+'55;background:'+c+'18;color:'+c+';font-family:monospace;font-weight:700;cursor:pointer;font-size:12px">'
@@ -1629,6 +1629,7 @@ document.addEventListener('DOMContentLoaded', function(){
           state.signals=d.signals;
           state.autoLog=d.autoLog||state.autoLog||[];
           if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
+          console.log('SIGNALS RECEIVED:',d.signals.length);
           renderSignals();
         }
       })
