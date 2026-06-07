@@ -1648,19 +1648,28 @@ document.addEventListener('DOMContentLoaded', function(){
           setPill('ws-pill','○ OFFLINE','pill-gray');
           $('status-bar').textContent='● Reconnecting…';
         }
-        // Auto-reconnect: reload page if offline for 30+ seconds (10 fails × 3s)
+        // After 10 fails show offline message but don't auto-reload
         if(failCount>=10){
-          console.log('Server unreachable — reloading page');
-          location.reload();
+          $('status-bar').textContent='● Server offline — tap ↺ to retry';
+          failCount=5; // reset to avoid spam
         }
       });
   }
 
-  // Initial load
-  fetch('/api/state').then(r=>r.json()).then(d=>{mergeState(d);renderAll();}).catch(()=>{});
+  // Initial load with retry
+  function initialLoad(attempt){
+    fetch('/api/state').then(r=>r.json()).then(d=>{
+      mergeState(d);renderAll();
+      setPill('ws-pill','● LIVE','pill-g');
+    }).catch(()=>{
+      if(attempt<5) setTimeout(()=>initialLoad(attempt+1), 2000);
+      else $('status-bar').textContent='● Cannot reach server — check Railway';
+    });
+  }
+  initialLoad(1);
 
   // Poll every 3 seconds — self-healing
-  setInterval(poll, 3000);
+  setInterval(poll, 5000);
 
   // Also handle page visibility — re-poll immediately when user returns to tab
   document.addEventListener('visibilitychange',()=>{
