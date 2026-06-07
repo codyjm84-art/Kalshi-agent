@@ -81,6 +81,7 @@ const state = {
   openOrders: [],
   orderLog:  [],
   markets:   [],
+  marketsUpdated: null,
   followedTraders: [],
   settings: {
     minOdds:    35,
@@ -231,7 +232,9 @@ async function loadMarkets() {
     }
 
     state.markets = markets;
+    state.marketsUpdated = new Date().toISOString();
     broadcast('markets', state.markets.slice(0, 200));
+    broadcast('markets_updated', state.marketsUpdated);
   } catch(e) {
     logError(e);
     setStatus('Markets failed: ' + e.message.slice(0, 50));
@@ -714,6 +717,10 @@ function handle(msg){
   else if(ev==='status'){state.status=d;$('status-bar').textContent='● '+d;}
   else if(ev==='order'){state.orderLog.unshift(d);renderOrders();updateStats();}
   else if(ev==='markets'){state.markets=d;renderMarkets();}
+  else if(ev==='markets_updated'){
+    const t=new Date(d);
+    $('status-bar').textContent='● Markets updated: '+t.toLocaleTimeString();
+  }
   else if(ev==='model_updated'){state.model=d;renderModel();}
   else if(ev==='optimizing'){$('model-bar').textContent='⏳ Optimizing model… running 500 simulations';}
   else if(ev==='profit_pull'){flash('success','💰 Profit pulled: $'+d.pulled+' · Secured: $'+d.total.toFixed(2));state.secured=d.total;updateStats();}
@@ -727,6 +734,7 @@ function mergeState(d){
   Object.assign(state,d);
   if(d.config)state.config=d.config;
   if(d.model)state.model=d.model;
+  if(d.marketsUpdated)state.marketsUpdated=d.marketsUpdated;
   if(d.settings)state.settings=d.settings;
 }
 
@@ -794,7 +802,8 @@ function renderMarkets(){
       return(DASH_KW[activeCategory]||[]).some(k=>t.includes(k));
     });
 
-  $('mkt-count').textContent=filtered.length+' markets';
+  const updStr=state.marketsUpdated?(' · updated '+new Date(state.marketsUpdated).toLocaleTimeString()):'';
+  $('mkt-count').textContent=filtered.length+' markets'+updStr;
   $('bm').textContent=filtered.length;
 
   if(!filtered.length){el.innerHTML='<div class="empty">NO '+activeCategory.toUpperCase()+' MARKETS<br><br>Tap ↺ Markets in Settings</div>';return;}
@@ -986,6 +995,10 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`KALSHI_PRIVATE_KEY set: ${!!ENV.KALSHI_PRIVATE_KEY}`);
 });
 setInterval(agentTick, 15_000);
+// Refresh market prices every 60 seconds automatically
+setInterval(async () => {
+  if (state.running) await loadMarkets();
+}, 60_000);
 
 // Pre-load markets on boot
 setTimeout(async () => {
