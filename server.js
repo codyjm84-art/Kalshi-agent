@@ -75,7 +75,7 @@ const state = {
   lastTick:  null,
   errors:    [],
   balance:   0,
-  pnl:       0,
+  pnl:       0,   // session P&L — negative = loss
   secured:   0,
   slHits:    0,
   openOrders: [],
@@ -553,7 +553,7 @@ async function syncKalshiPositions() {
           const mkt = mktRes.market || {};
           if (mkt.result === 'yes' || mkt.result === 'no') {
             won = (side === mkt.result);
-            pnl = won ? +(count * (1 - price) - fees).toFixed(4) : +(-cost - fees).toFixed(4);
+            pnl = won ? +(count * (1 - price) - fees).toFixed(4) : +(-cost).toFixed(4);
           }
         } catch(e2) {}
 
@@ -603,7 +603,7 @@ async function syncKalshiPositions() {
       // position_fp is number of contracts (positive = YES, negative = NO)
       const contracts = parseFloat(pos.position_fp || 0);
       if (contracts === 0) continue;
-      const alreadyTracked = state.openOrders.find(o => o.ticker === ticker && o.status === 'open');
+      const alreadyTracked = state.openOrders.find(o => o.ticker === ticker);
       if (!alreadyTracked) {
         const stake    = parseFloat(pos.total_traded_dollars || pos.market_exposure_dollars || 0);
         const count    = Math.abs(contracts);
@@ -636,8 +636,12 @@ async function syncKalshiPositions() {
     for (const o of execOrders) {
       const ticker = o.ticker;
       if (!ticker) continue;
+      // Skip if already tracked (including settled orders)
       const alreadyTracked = state.orderLog.find(l => l.id === o.order_id);
       if (alreadyTracked) continue;
+      // Skip if already marked as won/lost from settlement check
+      const settledEntry = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'));
+      if (settledEntry) continue;
 
       const side    = o.side || o.outcome_side || 'yes';
       const count   = parseFloat(o.fill_count_fp || 1);
@@ -669,10 +673,14 @@ async function syncKalshiPositions() {
       };
       state.orderLog.unshift(entry);
       // Also add to openOrders if not already tracked
-      if (!state.openOrders.find(p => p.ticker === ticker)) {
+      // Avoid duplicates — check by order_id
+      if (!state.openOrders.find(p => p.id === entry.id || p.ticker === ticker)) {
         state.openOrders.push({...entry});
       }
-      state.orderLog = state.orderLog.slice(0, 100);
+      // Only add to log if not already there
+      if (!state.orderLog.find(l => l.id === entry.id)) {
+        state.orderLog = state.orderLog.slice(0, 99);
+      }
       broadcast('order', entry);
       console.log('[Order synced]', ticker, side.toUpperCase(), '$'+stake.toFixed(2));
     }
@@ -1235,14 +1243,15 @@ function renderOrders(){
       ? '<span style="font-size:11px;font-weight:700;color:'+(o.pnl>=0?'#00e5a0':'#ff4455')+'">'
         +(o.pnl>=0?'+':'')+' $'+Math.abs(o.pnl).toFixed(2)+'</span>'
       : '<span style="font-size:11px;color:#888">$'+o.stake.toFixed(2)+'</span>';
-    // Find market title
+    // Find market title — use stored title first, then look up in markets
     const mkt=state.markets.find(m=>m.ticker===o.ticker);
-    const title=mkt?mkt.title.slice(0,50):o.ticker;
+    const title=o.title||(mkt?mkt.title:o.ticker)||o.ticker;
+    const displayTitle=title.slice(0,55);
     return '<div style="background:#0a0c16;border:1px solid '+borderColor+'44;border-left:3px solid '+borderColor+';border-radius:7px;padding:11px 13px;margin-bottom:7px">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
       +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;background:'+statusColor+'22;color:'+statusColor+'">'+statusLabel+'</span>'
       +pnlStr+'</div>'
-      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+title+'</div>'
+      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+displayTitle+'</div>'
       +'<div style="font-size:9px;color:#444870">'+o.price+'¢ · '+Number(o.count||0).toFixed(2)+' contracts · '+new Date(o.ts).toLocaleTimeString()+(o.synced?' · synced':'')+'</div>'
       +'</div>';
   }).join(''):'<div class="empty">NO ORDERS YET</div>';
