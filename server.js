@@ -771,17 +771,27 @@ function filterCat(cat){activeCategory=cat;buildCatBar();renderMarkets();}
 
 function renderMarkets(){
   const el=$('markets-list');if(!el)return;
-  const allKW=Object.values(CAT_KW).flat();
+  // Category keyword maps — must match server CAT_KW
+  const DASH_KW={
+    Politics:  ['election','president','congress','senate','trump','vote','govern','ukraine','russia','iran','nato','tariff','policy','bill','law','supreme','cabinet'],
+    Sports:    ['nba','nfl','nhl','mlb','mls','soccer','super bowl','world cup','championship','playoff','finals','league','series','cup','win','game','match','score','mvp'],
+    Crypto:    ['bitcoin','btc','eth','ethereum','crypto','solana','sol','xrp','doge','bnb','coinbase','binance','above','below','price','token','blockchain','defi','altcoin','halving'],
+    Economics: ['gdp','inflation','cpi','unemployment','fed','recession','earnings','jobs','mortgage','housing','retail','deficit','trade'],
+  };
+  const DASH_CATS={
+    Politics:  ['politics','political','election'],
+    Sports:    ['sports','sport'],
+    Crypto:    ['crypto','cryptocurrency'],
+    Economics: ['economics','economy','finance','business'],
+  };
   let filtered=activeCategory==='All'
     ?state.markets
     :state.markets.filter(m=>{
-      // Check Kalshi's native category field first
       const mc=(m.category||'').toLowerCase();
-      const kalshiCats=KALSHI_CATS[activeCategory]||[];
-      if(mc&&kalshiCats.some(c=>mc.includes(c)))return true;
-      // Then keyword match on title
+      const kalshiCats=DASH_CATS[activeCategory]||[];
+      if(mc&&kalshiCats.some(c=>mc===c))return true;
       const t=(m.title||'').toLowerCase();
-      return(CAT_KW[activeCategory]||[]).some(k=>t.includes(k));
+      return(DASH_KW[activeCategory]||[]).some(k=>t.includes(k));
     });
 
   $('mkt-count').textContent=filtered.length+' markets';
