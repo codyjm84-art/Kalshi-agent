@@ -709,8 +709,12 @@ function renderMarkets(){
   const el=$('markets-list');if(!el)return;
   const allKW=Object.values(CAT_KW).flat();
   let filtered=activeCategory==='All'
-    ?state.markets  // Show all markets when All is selected
-    :state.markets.filter(m=>{const t=(m.title||m.ticker||'').toLowerCase();return(CAT_KW[activeCategory]||[]).some(k=>t.includes(k));});
+    ?state.markets.filter(m=>!(m.title||'').toLowerCase().startsWith('yes '))
+    :state.markets.filter(m=>{
+      if((m.title||'').toLowerCase().startsWith('yes '))return false;
+      const t=(m.title||m.ticker||'').toLowerCase();
+      return(CAT_KW[activeCategory]||[]).some(k=>t.includes(k));
+    });
 
   $('mkt-count').textContent=filtered.length+' markets';
   $('bm').textContent=filtered.length;
@@ -722,7 +726,13 @@ function renderMarkets(){
     const nO=100-yO;
     const yC=yO>=60?'#00e5a0':yO>=40?'#f5a623':'#ff4455';
     const nC=nO>=60?'#00e5a0':nO>=40?'#f5a623':'#ff4455';
-    const q=(m.title||m.ticker||'').slice(0,60);
+    // Build clean readable title
+    // Kalshi single markets: title is the question e.g. "Will Trump sign X by Y?"
+    // Multi-leg markets: title starts with "yes " — skip those
+    const rawTitle = m.title || m.ticker || '';
+    const subtitle = m.yes_sub_title || m.subtitle || '';
+    // Use subtitle if available as it's usually cleaner
+    const q = (subtitle || rawTitle).replace(/^yes /i,'').replace(/^no /i,'').slice(0,70);
     const vol=m.volume?'Vol: '+Number(m.volume).toLocaleString():'';
     const hot=yO>=65?'<span style="font-size:8px;background:#00e5a022;color:#00e5a0;border:1px solid #00e5a044;border-radius:3px;padding:1px 5px;margin-left:5px">HOT</span>':'';
     return '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-radius:8px;padding:12px;margin-bottom:8px">'
