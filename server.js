@@ -1138,6 +1138,11 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
     <div style="font-size:9px;color:#00e5a0;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Recent Auto-Trades</div>
     <div id="auto-log-list"></div>
   </div>
+  <div id="sig-debug" style="background:#090e0a;border:1px solid #00e5a033;border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:10px;color:#00e5a0;line-height:1.8">
+    Signals in state: <b id="dbg-count">0</b><br>
+    Last poll: <span id="dbg-time">never</span><br>
+    Auto-trade: <span id="dbg-auto">off</span>
+  </div>
   <div style="font-size:9px;color:#444870;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Live Signals</div>
   <div id="signals-list"><div class="empty">START agent to detect signals</div></div>
 </div>
@@ -1530,6 +1535,11 @@ function renderSignals(){
   const el=$('signals-list');if(!el)return;
   const sigs=state.signals||[];
   const b=$('bsig');if(b)b.textContent=sigs.length;
+  // Update debug panel
+  const dc=$('dbg-count'),dt=$('dbg-time'),da=$('dbg-auto');
+  if(dc)dc.textContent=sigs.length;
+  if(dt)dt.textContent=new Date().toLocaleTimeString();
+  if(da)da.textContent=state.autoTrade?'ON':'off';
   const IC={VOLUME_SPIKE:'📊',MOMENTUM_UP:'📈',MOMENTUM_DOWN:'📉',VALUE_PLAY:'💎',SMART_MONEY:'🐋'};
   const LB={VOLUME_SPIKE:'Volume Spike',MOMENTUM_UP:'Momentum ↑',MOMENTUM_DOWN:'Momentum ↓',VALUE_PLAY:'Value Play',SMART_MONEY:'Smart Money'};
   const CL={VOLUME_SPIKE:'#4a9eff',MOMENTUM_UP:'#00e5a0',MOMENTUM_DOWN:'#00e5a0',VALUE_PLAY:'#f5a623',SMART_MONEY:'#ffd700'};
@@ -1629,7 +1639,6 @@ document.addEventListener('DOMContentLoaded', function(){
           state.signals=d.signals;
           state.autoLog=d.autoLog||state.autoLog||[];
           if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
-          console.log('SIGNALS RECEIVED:',d.signals.length);
           renderSignals();
         }
       })
