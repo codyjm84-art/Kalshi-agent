@@ -517,13 +517,18 @@ async function runAutoTrading(signals) {
 
 // ─── Main agent tick (every 15 seconds) ──────────────────────────────────────
 function dedupeOrders() {
-  // Remove duplicate orders keeping highest priority status
+  // Dedupe by TICKER — one entry per market
   const priority = {won:4, lost:4, settled:3, filled:2, open:1, pending:0};
   const seen = new Map();
   for (const o of state.orderLog) {
-    const key = o.id || o.ticker;
-    if (!seen.has(key) || (priority[o.status]||0) > (priority[seen.get(key).status]||0)) {
+    const key = o.ticker; // use ticker not order_id as dedup key
+    if (!seen.has(key)) {
       seen.set(key, o);
+    } else {
+      const existing = seen.get(key);
+      const oPri = priority[o.status] || 0;
+      const ePri = priority[existing.status] || 0;
+      if (oPri > ePri) seen.set(key, o); // keep higher priority status
     }
   }
   state.orderLog = Array.from(seen.values()).sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,100);
@@ -531,6 +536,7 @@ function dedupeOrders() {
   const oseen = new Map();
   for (const o of state.openOrders) oseen.set(o.ticker, o);
   state.openOrders = Array.from(oseen.values());
+  console.log('[Dedup] orderLog:', state.orderLog.map(o=>o.ticker+'='+o.status).join(', '));
 }
 
 async function syncKalshiPositions() {
