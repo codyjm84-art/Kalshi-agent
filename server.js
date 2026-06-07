@@ -241,9 +241,12 @@ async function loadMarkets() {
     state.marketsUpdated = new Date().toISOString();
     // Detect signals immediately after market load
     if (state.markets.length > 0) {
-      state.signals = detectSignals(state.markets);
-      broadcast('signals', state.signals);
+      const rawSigs_=detectSignals(state.markets);
+      state.signals=rawSigs_.map(s=>({ticker:s.ticker,side:s.side,price:s.price,type:s.type,reason:s.reason,score:s.score,title:s.market?s.market.title:s.ticker}));
+      broadcast('signals',state.signals);
     }
+    const ctCount=state.markets.filter(m=>m.close_time).length;
+    console.log('[Markets] close_time:',ctCount,'of',state.markets.length,'first:',state.markets[0]?state.markets[0].close_time:'none');
     broadcast('markets', state.markets.slice(0, 200));
     broadcast('markets_updated', state.marketsUpdated);
   } catch(e) {
@@ -870,8 +873,9 @@ async function agentTick() {
 
     // Detect signals and run auto-trading
     if (state.markets.length > 0) {
-      state.signals = detectSignals(state.markets);
-      broadcast('signals', state.signals);
+      const rawSigs_=detectSignals(state.markets);
+      state.signals=rawSigs_.map(s=>({ticker:s.ticker,side:s.side,price:s.price,type:s.type,reason:s.reason,score:s.score,title:s.market?s.market.title:s.ticker}));
+      broadcast('signals',state.signals);
       await runAutoTrading(state.signals);
     }
 
