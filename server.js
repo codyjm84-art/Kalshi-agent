@@ -516,6 +516,23 @@ async function runAutoTrading(signals) {
 }
 
 // ─── Main agent tick (every 15 seconds) ──────────────────────────────────────
+function dedupeOrders() {
+  // Remove duplicate orders keeping highest priority status
+  const priority = {won:4, lost:4, settled:3, filled:2, open:1, pending:0};
+  const seen = new Map();
+  for (const o of state.orderLog) {
+    const key = o.id || o.ticker;
+    if (!seen.has(key) || (priority[o.status]||0) > (priority[seen.get(key).status]||0)) {
+      seen.set(key, o);
+    }
+  }
+  state.orderLog = Array.from(seen.values()).sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,100);
+  // Dedupe openOrders by ticker
+  const oseen = new Map();
+  for (const o of state.openOrders) oseen.set(o.ticker, o);
+  state.openOrders = Array.from(oseen.values());
+}
+
 async function syncKalshiPositions() {
   // Sync positions placed directly on Kalshi website
   try {
@@ -706,6 +723,9 @@ async function syncKalshiPositions() {
       }
     }
   } catch(e) { /* silent — positions sync is best-effort */ }
+  // Clean duplicates after every sync
+  dedupeOrders();
+  broadcast('orders_sync', state.orderLog);
 }
 
 async function agentTick() {
@@ -1093,6 +1113,7 @@ function handle(msg){
   else if(ev==='error'){addError(d);flash('error',d.slice(0,60));}
   else if(ev==='signals'){state.signals=d;renderSignals();}
   else if(ev==='auto_trade'){if(!state.autoLog)state.autoLog=[];state.autoLog.unshift(d);flash('success','🤖 Auto: '+d.side.toUpperCase()+' '+d.ticker);renderSignals();}
+  else if(ev==='orders_sync'){state.orderLog=d;$('bo').textContent=d.length;renderOrders();}
   else if(ev==='settings'){state.settings=d;applySettings();}
 }
 
