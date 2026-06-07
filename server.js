@@ -1335,6 +1335,7 @@ function filterCat(cat){marketPage=1;searchQuery='';const s=$('mkt-search');if(s
 
 function renderMarkets(){
   const el=$('markets-list');if(!el)return;
+  const now=Date.now(); // needed for settlement countdown
   // Category keyword maps — must match server CAT_KW
   const DASH_KW={
     Politics:  ['election','president','congress','senate','trump','vote','govern','ukraine','russia','iran','nato','tariff','policy','bill','law','supreme','cabinet'],
