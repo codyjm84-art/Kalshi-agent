@@ -1233,10 +1233,8 @@ const PAGE_SIZE = 50;
 let searchQuery = '';
 
 let state = {
-let state = {
   running:false, balance:0, pnl:0, secured:0, slHits:0,
   markets:[], orderLog:[], errors:[],
-  signals:[], autoLog:[], autoTrade:false,
   signals:[], autoLog:[], autoTrade:false,
   config:{hasKeys:false}
 };
@@ -1686,16 +1684,6 @@ document.addEventListener('DOMContentLoaded', function(){
     }
   });
 
-  // Dummy setInterval placeholder to match old structure
-  setInterval(()=>{
-    fetch('/api/state').then(r=>r.json()).then(d=>{
-      mergeState(d);
-      updateStats();
-      renderOrders();
-      renderModel();
-      updateAgentBtn();
-    }).catch(()=>{ setPill('ws-pill','○ OFFLINE','pill-gray'); });
-  }, 3000);
 });
 </script>
 </body>
