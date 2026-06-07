@@ -620,6 +620,7 @@ function detectSignals(markets) {
 // Track recently failed tickers to avoid retry loops
 const failedTickers = new Map(); // ticker -> timestamp
 let lastAutoTrade = 0; // timestamp of last auto-trade
+const seenSignals = new Set(); // signals seen before auto-trade enabled — skip these
 
 async function runAutoTrading(signals) {
   if (!state.autoTrade || !signals.length) return;
@@ -636,14 +637,20 @@ async function runAutoTrading(signals) {
   // Rate limit auto-trades to once per 60 seconds
   if (now - lastAutoTrade < 60_000) return;
 
-  // Take top signal that we haven't already traded and hasn't failed recently
+  // Take top signal that is NEW (not seen before auto-trade enabled)
   const openTickers = new Set(state.openOrders.map(o => o.ticker));
-  const candidate   = signals.find(s => !openTickers.has(s.ticker) && !failedTickers.has(s.ticker) && s.score >= 40);
+  const candidate   = signals.find(s =>
+    !openTickers.has(s.ticker) &&
+    !failedTickers.has(s.ticker) &&
+    !seenSignals.has(s.ticker) &&  // only NEW signals
+    s.score >= 40
+  );
   if (!candidate) return;
 
   try {
     setStatus(`Auto-trade: ${candidate.type} on ${candidate.ticker} (score ${candidate.score})`);
     lastAutoTrade = Date.now();
+    seenSignals.add(candidate.ticker); // don't trade this signal again
     await placeOrder(candidate.ticker, candidate.side, candidate.price).catch(e => {
       failedTickers.set(candidate.ticker, Date.now());
       throw e;
@@ -973,7 +980,15 @@ app.post('/api/agent/stop', (req, res) => {
 
 app.post('/api/settings', (req, res) => {
   const { minOdds, stopLoss, pullTarget, resetTo, autoCopy, autoTrade, categories } = req.body;
-  if (autoTrade !== undefined) state.autoTrade = autoTrade;
+  if (autoTrade !== undefined) {
+    if (autoTrade && !state.autoTrade) {
+      // Auto-trade just turned ON — mark all current signals as already seen
+      seenSignals.clear();
+      (state.signals || []).forEach(s => seenSignals.add(s.ticker));
+      console.log('[AutoTrade] Enabled — skipping', seenSignals.size, 'existing signals');
+    }
+    state.autoTrade = autoTrade;
+  }
   if (minOdds    !== undefined) state.settings.minOdds    = minOdds;
   if (stopLoss   !== undefined) state.settings.stopLoss   = stopLoss;
   if (pullTarget !== undefined) state.settings.pullTarget = pullTarget;
@@ -1741,6 +1756,12 @@ setInterval(agentTick, 30_000);
 setInterval(async () => {
   if (state.running) await loadMarkets();
 }, 90_000);
+// Clear seen signals every hour so markets can fire again on new conditions
+setInterval(() => {
+  const before = seenSignals.size;
+  seenSignals.clear();
+  if (before > 0) console.log('[AutoTrade] Cleared', before, 'seen signals — fresh evaluation');
+}, 3600_000);
 
 // Pre-load markets on boot
 setTimeout(async () => {
