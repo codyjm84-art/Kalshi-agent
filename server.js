@@ -1651,12 +1651,11 @@ document.addEventListener('DOMContentLoaded', function(){
         failCount++;
         if(failCount>=3){
           setPill('ws-pill','○ OFFLINE','pill-gray');
-          $('status-bar').textContent='● Reconnecting…';
+          // Don't show error — data from init load is still valid
         }
-        // After 10 fails show offline message but don't auto-reload
-        if(failCount>=10){
-          $('status-bar').textContent='● Server offline — tap ↺ to retry';
-          failCount=5; // reset to avoid spam
+        // After many fails just silently retry — data loaded on init is still valid
+        if(failCount>=5){
+          failCount=3; // reset counter, keep retrying silently
         }
       });
   }
@@ -1674,7 +1673,7 @@ document.addEventListener('DOMContentLoaded', function(){
   initialLoad(1);
 
   // Poll every 3 seconds — self-healing
-  setInterval(poll, 5000);
+  setInterval(poll, 10000);
 
   // Also handle page visibility — re-poll immediately when user returns to tab
   document.addEventListener('visibilitychange',()=>{
