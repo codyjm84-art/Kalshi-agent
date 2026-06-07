@@ -54,10 +54,18 @@ const KALSHI_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 
 // ─── Category keyword filters ─────────────────────────────────────────────────
 const CAT_KW = {
-  Politics:  ['election','president','congress','senate','trump','vote','govern','ukraine','iran','nato','fed','rate','tariff'],
-  Sports:    ['nba','nfl','nhl','mlb','soccer','super bowl','world cup','championship','playoff','finals','league'],
-  Crypto:    ['bitcoin','btc','eth','ethereum','crypto','interest rate','cpi','inflation','fed'],
-  Economics: ['gdp','inflation','cpi','unemployment','fed','recession','earnings','jobs'],
+  Politics:  ['election','president','congress','senate','trump','vote','govern','ukraine','russia','iran','nato','tariff','policy','bill','law','fed chair','supreme','cabinet'],
+  Sports:    ['nba','nfl','nhl','mlb','mls','soccer','super bowl','world cup','championship','playoff','finals','league','series','cup','win','game','match','score','mvp','coach'],
+  Crypto:    ['bitcoin','btc','eth','ethereum','crypto','solana','sol','xrp','doge','bnb','usdt','coinbase','binance','above','below','price','token','blockchain','defi','altcoin','halving'],
+  Economics: ['gdp','inflation','cpi','unemployment','fed','recession','earnings','jobs','mortgage','housing','retail','deficit','tariff','trade'],
+};
+
+// Kalshi category values mapped to our tabs
+const KALSHI_CATS = {
+  Politics:  ['politics','political','election','economics'],
+  Sports:    ['sports','sport'],
+  Crypto:    ['crypto','cryptocurrency','finance'],
+  Economics: ['economics','economy','finance','business'],
 };
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -767,7 +775,11 @@ function renderMarkets(){
   let filtered=activeCategory==='All'
     ?state.markets
     :state.markets.filter(m=>{
-      if(m.category&&m.category.includes(activeCategory.toLowerCase()))return true;
+      // Check Kalshi's native category field first
+      const mc=(m.category||'').toLowerCase();
+      const kalshiCats=KALSHI_CATS[activeCategory]||[];
+      if(mc&&kalshiCats.some(c=>mc.includes(c)))return true;
+      // Then keyword match on title
       const t=(m.title||'').toLowerCase();
       return(CAT_KW[activeCategory]||[]).some(k=>t.includes(k));
     });
