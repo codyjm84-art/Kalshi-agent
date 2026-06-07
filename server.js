@@ -338,6 +338,79 @@ function checkProfitPull() {
   }
 }
 
+// ─── Partial profit taking ────────────────────────────────────────────────────
+// Rules:
+//   Sell 1/2 at 75% profit
+//   Sell 1/4 at 100% profit
+//   Hold remainder to settlement
+//   Minimum 4 contracts to apply rules (otherwise hold to settlement)
+
+async function checkProfitTaking() {
+  for (const order of state.openOrders.filter(o => o.status === 'open' && !o.synced)) {
+    try {
+      const data = await kalFetch('GET', `/markets/${order.ticker}`);
+      const mkt  = data.market || {};
+      const cur  = order.side === 'yes' ? (mkt.yes_bid || order.price) : (mkt.no_bid || order.price);
+      const entry = order.price; // cents
+      const profit = ((cur - entry) / entry); // % gain
+
+      // Need at least 4 contracts to apply partial rules
+      if (!order.count || order.count < 4) continue;
+
+      let sellCount = 0;
+      let reason    = '';
+
+      // Check 75% profit tier — sell half if not done yet
+      if (profit >= 0.75 && !order.sold75) {
+        sellCount = Math.floor(order.count / 2);
+        reason    = '75% profit — selling half';
+        order.sold75 = true;
+      }
+      // Check 100% profit tier — sell quarter if not done yet
+      else if (profit >= 1.0 && !order.sold100) {
+        sellCount = Math.floor(order.count / 4);
+        reason    = '100% profit — selling quarter';
+        order.sold100 = true;
+      }
+
+      if (sellCount < 1) continue;
+
+      // Place sell order
+      const sellPrice = Math.max(1, Math.min(99, cur - 2)); // slightly below bid to fill
+      const sellBody = {
+        ticker:          order.ticker,
+        action:          'sell',
+        type:            'limit',
+        time_in_force:   'fill_or_kill',
+        side:            order.side,
+        count:           sellCount,
+        yes_price:       order.side === 'yes' ? sellPrice : 100 - sellPrice,
+        client_order_id: Date.now().toString(),
+      };
+
+      console.log(`[Profit] ${reason} on ${order.ticker} — selling ${sellCount} of ${order.count} @ ${cur}¢`);
+      await kalFetch('POST', '/portfolio/orders', sellBody);
+
+      // Update position count
+      order.count -= sellCount;
+      const proceeds = +(sellCount * cur / 100).toFixed(4);
+      const cost     = +(sellCount * entry / 100).toFixed(4);
+      const gain     = +(proceeds - cost).toFixed(4);
+      state.pnl     += gain;
+      state.balance += proceeds;
+
+      broadcast('order', order);
+      broadcast('balance', state.balance);
+      setStatus(`💰 Partial profit: ${reason} on ${order.ticker} +$${gain.toFixed(2)}`);
+      flash_server(`Partial profit: +$${gain.toFixed(2)} on ${order.ticker}`);
+    } catch(e) { /* silent */ }
+  }
+}
+
+function flash_server(msg) {
+  broadcast('flash', { type: 'success', msg });
+}
+
 // ─── Monte Carlo optimizer ────────────────────────────────────────────────────
 function runOptimizer() {
   const m = state.model;
@@ -778,6 +851,7 @@ async function agentTick() {
     checkProfitPull();
     await checkStopLosses();
     await syncKalshiPositions(); // sync externally placed orders
+    await checkProfitTaking();     // partial profit taking
     runOptimizer();
 
     // Detect signals and run auto-trading
@@ -1165,6 +1239,7 @@ function handle(msg){
   else if(ev==='signals'){state.signals=d;renderSignals();}
   else if(ev==='auto_trade'){if(!state.autoLog)state.autoLog=[];state.autoLog.unshift(d);flash('success','🤖 Auto: '+d.side.toUpperCase()+' '+d.ticker);renderSignals();}
   else if(ev==='orders_sync'){state.orderLog=d;$('bo').textContent=d.length;renderOrders();}
+  else if(ev==='flash'){flash(d.type,d.msg);}
   else if(ev==='settings'){state.settings=d;applySettings();}
 }
 
