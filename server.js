@@ -553,8 +553,18 @@ async function syncKalshiPositions() {
         console.log('[Sync] Added position:', ticker, contracts > 0 ? 'YES' : 'NO', '$'+stake.toFixed(2));
       }
     }
+    // Also fetch closed/settled positions
+    try {
+      const settled = await kalFetch('GET', '/portfolio/positions?settlement_status=settled&limit=50');
+      console.log('[Settled] keys:', Object.keys(settled));
+      console.log('[Settled] market_positions type:', typeof settled.market_positions, 'len:', Object.values(settled.market_positions||{}).length);
+      console.log('[Settled] first:', JSON.stringify(Object.values(settled.market_positions||{})[0]||{}).slice(0,400));
+    } catch(e) { console.log('[Settled] error:', e.message); }
+
     // Also sync filled orders
     const fills = await kalFetch('GET', '/portfolio/fills?limit=50');
+    console.log('[Fills] keys:', Object.keys(fills));
+    console.log('[Fills] first:', JSON.stringify((fills.fills||fills.orders||Object.values(fills)[0]||[])[0]||{}).slice(0,400));
     const fillList = fills.fills || fills.orders || [];
     for (const f of fillList) {
       const ticker = f.ticker || f.market_ticker;
