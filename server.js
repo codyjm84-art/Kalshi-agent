@@ -162,9 +162,18 @@ async function loadMarkets() {
     // Try events endpoint first (has readable titles + categories)
     let markets = [];
     try {
-      const evRes = await kalFetch('GET', '/events?limit=200&status=open&with_nested_markets=true');
-      const events = evRes.events || [];
-      for (const ev of events) {
+      // Fetch multiple pages to get more markets
+      let allEvents = [];
+      for (let cursor = ''; ; ) {
+        const url = '/events?limit=200&status=open&with_nested_markets=true' + (cursor ? '&cursor='+cursor : '');
+        const evRes = await kalFetch('GET', url);
+        const batch = evRes.events || [];
+        allEvents = allEvents.concat(batch);
+        if (!evRes.cursor || batch.length < 200) break; // no more pages
+        cursor = evRes.cursor;
+        if (allEvents.length >= 1000) break; // safety cap
+      }
+      for (const ev of allEvents) {
         const evTitle = ev.title || ev.event_ticker || '';
         const cat = (ev.category || '').toLowerCase();
         for (const m of (ev.markets || [])) {
@@ -187,7 +196,7 @@ async function loadMarkets() {
     } catch(evErr) {
       // Fallback: markets endpoint only has yes_sub_title as the question
       logError('Events fallback: ' + evErr.message);
-      const mRes = await kalFetch('GET', '/markets?limit=1000&status=open');
+      const mRes = await kalFetch('GET', '/markets?limit=2000&status=open');
       const raw = mRes.markets || [];
       markets = raw
         .filter(m => {
