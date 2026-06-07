@@ -947,7 +947,7 @@ app.get('/api/state', (req, res) => {
   const { markets, priceHistory, ...stateWithoutMarkets } = state;
   res.json({
     ...stateWithoutMarkets,
-    markets: markets.slice(0, 500), // send 500 markets in state
+    markets: [], // markets served separately via /api/markets to avoid timeout
     config:  { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
     signals: state.signals || [],
     autoLog: state.autoLog || [],
@@ -1673,9 +1673,8 @@ document.addEventListener('DOMContentLoaded', function(){
         // Show last update time in status bar
         const ts=new Date().toLocaleTimeString();
         $('status-bar').textContent='● Updated: '+ts+(d.running?' · Agent running':' · Agent stopped');
-        // Re-render markets to show updated prices
-        if(d.markets&&d.markets.length){
-          state.markets=d.markets;
+        // Markets are fetched separately — re-render if we have them
+        if(state.markets&&state.markets.length){
           renderMarkets();
         }
         // Re-render orders with fresh deduplicated data
@@ -1712,13 +1711,28 @@ document.addEventListener('DOMContentLoaded', function(){
       renderAll();
       setPill('ws-pill','● LIVE','pill-g');
       // Fetch full markets list separately
-      fetch('/api/markets').then(r=>r.json()).then(mkts=>{
+      fetch('/api/markets').then(r=>{
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        return r.json();
+      }).then(mkts=>{
         if(mkts&&mkts.length){
           state.markets=mkts;
           renderMarkets();
           $('bm').textContent=mkts.length;
+          $('status-bar').textContent='● '+mkts.length+' markets loaded · '+new Date().toLocaleTimeString();
         }
-      }).catch(()=>{});
+      }).catch(e=>{
+        // Retry once after 3 seconds
+        setTimeout(()=>{
+          fetch('/api/markets').then(r=>r.json()).then(mkts=>{
+            if(mkts&&mkts.length){
+              state.markets=mkts;
+              renderMarkets();
+              $('bm').textContent=mkts.length;
+            }
+          }).catch(()=>{});
+        },3000);
+      });
     }).catch(()=>{
       if(attempt<5) setTimeout(()=>initialLoad(attempt+1), 2000);
     });
