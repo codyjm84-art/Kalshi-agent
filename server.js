@@ -259,14 +259,15 @@ async function placeOrder(ticker, side, priceInCents) {
   const intCount = Math.max(1, Math.floor(stake * 100 / priceInCents));
   const yesPrice = side === 'yes' ? priceInCents : 100 - priceInCents;
 
-  // Kalshi requires yes_price even for market orders
-  // Use ask price = bid + 2¢ buffer to ensure immediate fill
-  const askPrice = Math.min(99, yesPrice + 2);
+  // Use fill_or_kill with high price to act as market order
+  // This executes immediately at best available price
+  const askPrice = Math.min(99, yesPrice + 3); // bid + buffer to cross spread
 
   const body = {
     ticker,
     action:          'buy',
-    type:            'market',
+    type:            'limit',
+    time_in_force:   'fill_or_kill',  // execute immediately or cancel
     side,
     count:           intCount,
     yes_price:       askPrice,
@@ -820,7 +821,9 @@ app.get('/api/state', (req, res) => {
   config:  { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
   signals: state.signals || [],
   autoLog: state.autoLog || [],
+  autoTrade: state.autoTrade,
   });
+  console.log('[State] Sending signals count:', (state.signals||[]).length);
 });
 
 app.post('/api/agent/start', async (req, res) => {
