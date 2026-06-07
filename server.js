@@ -555,13 +555,57 @@ async function syncKalshiPositions() {
         console.log('[Sync] Added position:', ticker, contracts > 0 ? 'YES' : 'NO', '$'+stake.toFixed(2));
       }
     }
-    // Try all order statuses to find closed trades
-    for (const status of ['resting','executed','canceled','all']) {
-      try {
-        const r = await kalFetch('GET', '/portfolio/orders?limit=5&status='+status);
-        const orders = r.orders || [];
-        console.log('[Orders-'+status+'] count:', orders.length, 'first:', JSON.stringify(orders[0]||{}).slice(0,300));
-      } catch(e) { console.log('[Orders-'+status+'] error:', e.message.slice(0,80)); }
+    // Fetch executed (filled) orders — these are closed/completed trades
+    const execRes = await kalFetch('GET', '/portfolio/orders?limit=100&status=executed');
+    const execOrders = execRes.orders || [];
+
+    for (const o of execOrders) {
+      const ticker = o.ticker || o.market_ticker;
+      if (!ticker) continue;
+      const alreadyTracked = state.orderLog.find(l => l.id === o.order_id);
+      if (alreadyTracked) continue;
+
+      // Determine side — action=buy with book_side=bid means YES buy
+      const side = o.side || (o.book_side === 'bid' ? 'yes' : 'no');
+      const count = parseFloat(o.fill_count_fp || o.initial_count_fp || 1);
+      const yesPrice = parseFloat(o.yes_price_dollars || o.no_price_dollars || 0.5);
+      const stake = +(count * yesPrice).toFixed(4);
+
+      // Check if this market is settled — look up in current markets
+      const market = state.markets.find(m => m.ticker === ticker);
+      const isSettled = o.settled || !market; // if market not in active list, likely settled
+
+      // Calculate P&L if settled
+      // For YES wins: pnl = count * (1 - yesPrice) [collect $1 per contract minus cost]
+      // For YES losses: pnl = -stake
+      const pnl = isSettled
+        ? (o.result === 'won' ? +(count * (1 - yesPrice)).toFixed(4)
+           : o.result === 'lost' ? -stake : 0)
+        : null;
+
+      const entry = {
+        id:       o.order_id,
+        ticker,
+        side,
+        stake,
+        price:    Math.round(yesPrice * 100),
+        count:    +count.toFixed(2),
+        pnl,
+        result:   o.result || (isSettled ? 'settled' : 'open'),
+        ts:       new Date(o.created_time || Date.now()).getTime(),
+        status:   isSettled ? (o.result === 'won' ? 'won' : o.result === 'lost' ? 'lost' : 'settled') : 'filled',
+        synced:   true,
+      };
+      state.orderLog.unshift(entry);
+      state.orderLog = state.orderLog.slice(0, 100);
+      broadcast('order', entry);
+
+      // Update P&L tracking
+      if (pnl !== null) {
+        state.pnl = +(state.pnl + pnl).toFixed(4);
+        if (pnl > 0) { state.model.sessionWins++; state.model.totalGain += pnl; }
+        else if (pnl < 0) { state.model.sessionLosses++; state.model.totalLoss += Math.abs(pnl); }
+      }
     }
     const fillList = [];
     for (const f of fillList) {
@@ -1110,14 +1154,27 @@ function renderOrders(){
   const log=state.orderLog||[];
   $('bo').textContent=log.length;
   $('orders-list').innerHTML=log.length?log.slice(0,50).map(o=>{
-    const cl=o.status==='stopped'?'#ff4455':o.side==='yes'?'#00e5a0':'#4a9eff';
-    return '<div style="background:#0a0c16;border:1px solid #1a1a2a;border-radius:7px;padding:11px 13px;margin-bottom:7px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
-      +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;background:'+cl+'22;color:'+cl+'">'
-      +(o.status==='stopped'?'STOPPED':o.side.toUpperCase())+'</span>'
-      +'<span style="font-size:13px;font-weight:700;color:#fff">$'+o.stake.toFixed(2)+'</span></div>'
-      +'<div style="font-size:11px;color:#ccc">'+o.ticker+'</div>'
-      +'<div style="font-size:9px;color:#444870;margin-top:3px">'+o.price+'¢ · '+o.count+' contracts · '+new Date(o.ts).toLocaleTimeString()+'</div>'
+    const isWon  = o.status==='won';
+    const isLost = o.status==='lost';
+    const isOpen = o.status==='open'||o.status==='filled';
+    const isSL   = o.status==='stopped';
+    const borderColor = isWon?'#00e5a0':isLost?'#ff4455':isOpen?'#4a9eff':'#252850';
+    const sideColor   = o.side==='yes'?'#00e5a0':'#4a9eff';
+    const statusLabel = isWon?'✓ WON':isLost?'✗ LOST':isSL?'SL':isOpen?o.side.toUpperCase():'SETTLED';
+    const statusColor = isWon?'#00e5a0':isLost?'#ff4455':isSL?'#ff4455':sideColor;
+    const pnlStr = o.pnl!=null
+      ? '<span style="font-size:11px;font-weight:700;color:'+(o.pnl>=0?'#00e5a0':'#ff4455')+'">'
+        +(o.pnl>=0?'+':'')+' $'+Math.abs(o.pnl).toFixed(2)+'</span>'
+      : '<span style="font-size:11px;color:#888">$'+o.stake.toFixed(2)+'</span>';
+    // Find market title
+    const mkt=state.markets.find(m=>m.ticker===o.ticker);
+    const title=mkt?mkt.title.slice(0,50):o.ticker;
+    return '<div style="background:#0a0c16;border:1px solid '+borderColor+'44;border-left:3px solid '+borderColor+';border-radius:7px;padding:11px 13px;margin-bottom:7px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+      +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;background:'+statusColor+'22;color:'+statusColor+'">'+statusLabel+'</span>'
+      +pnlStr+'</div>'
+      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+title+'</div>'
+      +'<div style="font-size:9px;color:#444870">'+o.price+'¢ · '+Number(o.count||0).toFixed(2)+' contracts · '+new Date(o.ts).toLocaleTimeString()+(o.synced?' · synced':'')+'</div>'
       +'</div>';
   }).join(''):'<div class="empty">NO ORDERS YET</div>';
 }
