@@ -963,10 +963,54 @@ async function apiPost(url,body){
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function(){
-  setPill('ws-pill','● LIVE','pill-g');
+  let failCount=0;
+
+  function poll(){
+    fetch('/api/state')
+      .then(r=>{
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        return r.json();
+      })
+      .then(d=>{
+        failCount=0;
+        setPill('ws-pill','● LIVE','pill-g');
+        mergeState(d);
+        updateStats();
+        renderOrders();
+        renderModel();
+        updateAgentBtn();
+        // Re-render markets if we have new data
+        if(d.markets&&d.markets.length) renderMarkets();
+      })
+      .catch(()=>{
+        failCount++;
+        if(failCount>=3){
+          setPill('ws-pill','○ OFFLINE','pill-gray');
+          $('status-bar').textContent='● Reconnecting…';
+        }
+        // Auto-reconnect: reload page if offline for 30+ seconds (10 fails × 3s)
+        if(failCount>=10){
+          console.log('Server unreachable — reloading page');
+          location.reload();
+        }
+      });
+  }
+
   // Initial load
   fetch('/api/state').then(r=>r.json()).then(d=>{mergeState(d);renderAll();}).catch(()=>{});
-  // Poll every 3 seconds for live updates
+
+  // Poll every 3 seconds — self-healing
+  setInterval(poll, 3000);
+
+  // Also handle page visibility — re-poll immediately when user returns to tab
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'){
+      failCount=0;
+      poll();
+    }
+  });
+
+  // Dummy setInterval placeholder to match old structure
   setInterval(()=>{
     fetch('/api/state').then(r=>r.json()).then(d=>{
       mergeState(d);
