@@ -289,8 +289,15 @@ async function placeOrder(ticker, side, priceInCents) {
   try {
     data = await kalFetch('POST', '/portfolio/orders', body);
   } catch(e) {
-    // fill_or_kill fails when not enough volume — fall back to regular limit
-    if (e.message.includes('fill_or_kill') || e.message.includes('insufficient')) {
+    if (e.message.includes('429') || e.message.includes('too_many')) {
+      // Rate limited — wait 5 seconds and retry once
+      console.log('[Order] Rate limited, waiting 5s...');
+      await new Promise(r => setTimeout(r, 5000));
+      data = await kalFetch('POST', '/portfolio/orders', body).catch(e2 => {
+        console.error('[Order] Error after retry:', e2.message);
+        throw e2;
+      });
+    } else if (e.message.includes('fill_or_kill') || e.message.includes('insufficient')) {
       console.log('[Order] FOK failed, retrying as regular limit');
       const fallback = {...body};
       delete fallback.time_in_force;
@@ -603,6 +610,7 @@ function detectSignals(markets) {
 
 // Track recently failed tickers to avoid retry loops
 const failedTickers = new Map(); // ticker -> timestamp
+let lastAutoTrade = 0; // timestamp of last auto-trade
 
 async function runAutoTrading(signals) {
   if (!state.autoTrade || !signals.length) return;
@@ -616,6 +624,8 @@ async function runAutoTrading(signals) {
   for (const [t, ts] of failedTickers) {
     if (now - ts > 300_000) failedTickers.delete(t);
   }
+  // Rate limit auto-trades to once per 60 seconds
+  if (now - lastAutoTrade < 60_000) return;
 
   // Take top signal that we haven't already traded and hasn't failed recently
   const openTickers = new Set(state.openOrders.map(o => o.ticker));
@@ -624,6 +634,7 @@ async function runAutoTrading(signals) {
 
   try {
     setStatus(`Auto-trade: ${candidate.type} on ${candidate.ticker} (score ${candidate.score})`);
+    lastAutoTrade = Date.now();
     await placeOrder(candidate.ticker, candidate.side, candidate.price).catch(e => {
       failedTickers.set(candidate.ticker, Date.now());
       throw e;
@@ -920,7 +931,7 @@ app.get('/api/state', (req, res) => {
   const { markets, priceHistory, ...stateWithoutMarkets } = state;
   res.json({
     ...stateWithoutMarkets,
-    markets: markets.slice(0, 100), // just first 100 for quick load
+    markets: markets.slice(0, 500), // send 500 markets in state
     config:  { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
     signals: state.signals || [],
     autoLog: state.autoLog || [],
