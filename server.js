@@ -484,10 +484,15 @@ function detectSignals(markets) {
 
   // Sort by score descending, dedupe by ticker (keep highest score per market)
   const seen = new Set();
-  return signals
+  const result = signals
     .sort((a,b) => b.score - a.score)
     .filter(s => { if(seen.has(s.ticker)) return false; seen.add(s.ticker); return true; })
     .slice(0, 20);
+
+  // Debug: log signal detection stats
+  const volsWithData = markets.filter(m=>(m.volume_24h||0)>0).length;
+  console.log('[Signals] markets:'+markets.length+' avgVol:'+avgVol.toFixed(0)+' volsWithData:'+volsWithData+' signals:'+result.length+' histTickers:'+Object.keys(state.priceHistory).length);
+  return result;
 }
 
 async function runAutoTrading(signals) {
