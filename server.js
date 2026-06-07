@@ -519,45 +519,42 @@ async function syncKalshiPositions() {
   try {
     const data = await kalFetch('GET', '/portfolio/positions');
     // Log raw response keys to diagnose field names
-    // Log full structure to diagnose
-    const mp = Array.isArray(data.market_positions) ? data.market_positions
-               : typeof data.market_positions === 'object' ? Object.values(data.market_positions||{})
-               : [];
-    const ep = Array.isArray(data.event_positions) ? data.event_positions
-               : typeof data.event_positions === 'object' ? Object.values(data.event_positions||{})
-               : [];
-    console.log('[market_positions] type:', typeof data.market_positions, 'len:', mp.length);
-    console.log('[market_positions] first:', JSON.stringify(mp[0]||{}).slice(0,300));
-    console.log('[event_positions] type:', typeof data.event_positions, 'len:', ep.length);
-    console.log('[event_positions] first:', JSON.stringify(ep[0]||{}).slice(0,300));
-    const positions = [...mp, ...ep];
+    // market_positions is an object keyed by ticker — extract values
+    const mp = Object.values(data.market_positions || {});
+    const positions = mp; // use market_positions — has ticker + position_fp fields
     for (const pos of positions) {
       const ticker = pos.ticker || pos.market_ticker;
       if (!ticker) continue;
+      // position_fp is number of contracts (positive = YES, negative = NO)
+      const contracts = parseFloat(pos.position_fp || 0);
+      if (contracts === 0) continue;
       const alreadyTracked = state.openOrders.find(o => o.ticker === ticker && o.status === 'open');
-      if (!alreadyTracked && (pos.position || pos.resting_orders_count > 0)) {
-        // Position exists on Kalshi but not in our log — add it
+      if (!alreadyTracked) {
+        const stake    = parseFloat(pos.total_traded_dollars || pos.market_exposure_dollars || 0);
+        const count    = Math.abs(contracts);
+        const price    = count > 0 ? Math.round((stake / count) * 100) : 50;
+        const pnl      = parseFloat(pos.realized_pnl_dollars || 0);
         const entry = {
-          id:       pos.market_id || ticker,
+          id:     ticker + '-synced',
           ticker,
-          side:     pos.position > 0 ? 'yes' : 'no',
-          stake:    Math.abs(parseFloat(pos.total_cost || pos.position || 0)),
-          price:    pos.yes_price || 50,
-          count:    Math.abs(pos.position || 1),
-          ts:       Date.now(),
-          status:   'open',
-          synced:   true, // flagged as externally placed
+          side:   contracts > 0 ? 'yes' : 'no',
+          stake:  +stake.toFixed(4),
+          price:  Math.max(1, Math.min(99, price)),
+          count:  +count.toFixed(2),
+          pnl:    +pnl.toFixed(4),
+          ts:     new Date(pos.last_updated_ts || Date.now()).getTime(),
+          status: 'open',
+          synced: true,
         };
         state.openOrders.push(entry);
         state.orderLog.unshift(entry);
         state.orderLog = state.orderLog.slice(0, 100);
         broadcast('order', entry);
+        console.log('[Sync] Added position:', ticker, contracts > 0 ? 'YES' : 'NO', '$'+stake.toFixed(2));
       }
     }
     // Also sync filled orders
     const fills = await kalFetch('GET', '/portfolio/fills?limit=50');
-    console.log('[Fills] response keys:', Object.keys(fills));
-    console.log('[Fills] first item:', JSON.stringify((fills.fills||fills.orders||[])[0]||{}).slice(0,200));
     const fillList = fills.fills || fills.orders || [];
     for (const f of fillList) {
       const ticker = f.ticker || f.market_ticker;
