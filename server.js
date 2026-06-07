@@ -324,6 +324,10 @@ async function agentTick() {
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 // Debug endpoint — shows which env vars are detected
+// Health check — Railway uses this to verify app is running
+app.get('/healthz', (req, res) => res.send('OK'));
+app.get('/health', (req, res) => res.send('OK'));
+
 app.get('/api/debug', (req, res) => res.json({
   hasKeyId:     !!ENV.KALSHI_KEY_ID,
   keyIdLength:  ENV.KALSHI_KEY_ID.length,
@@ -416,7 +420,12 @@ app.post('/api/traders/unfollow', (req, res) => {
 app.get('/', (req, res) => res.sendFile('index.html', { root: 'public' }));
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-server.listen(PORT, () => console.log(`Kalshi agent running on port ${PORT}`));
+// Railway requires binding to 0.0.0.0
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Kalshi agent running on port ${PORT}`);
+  console.log(`KALSHI_KEY_ID set: ${!!ENV.KALSHI_KEY_ID}`);
+  console.log(`KALSHI_PRIVATE_KEY set: ${!!ENV.KALSHI_PRIVATE_KEY}`);
+});
 setInterval(agentTick, 15_000);
 
 // Pre-load markets on boot
