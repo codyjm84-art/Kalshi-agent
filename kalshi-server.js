@@ -19,8 +19,40 @@ app.use(express.static('public'));
 
 // ─── Environment variables (set in Railway → Variables) ───────────────────────
 const ENV = {
-  KALSHI_KEY_ID:      process.env.KALSHI_KEY_ID      || '',
-  KALSHI_PRIVATE_KEY: process.env.KALSHI_PRIVATE_KEY || '',
+  KALSHI_KEY_ID: process.env.KALSHI_KEY_ID || '',
+  // Normalize private key — Railway may strip or escape line breaks
+  KALSHI_PRIVATE_KEY: (()=>{
+    let k = process.env.KALSHI_PRIVATE_KEY || '';
+    if (!k) return '';
+    // Replace literal 
+ with real newlines
+    k = k.replace(/\n/g, '
+');
+    // If key has no newlines at all, reformat it
+    if (!k.includes('
+')) {
+      k = k
+        .replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN PRIVATE KEY-----
+')
+        .replace('-----END PRIVATE KEY-----',   '
+-----END PRIVATE KEY-----')
+        .replace('-----BEGIN RSA PRIVATE KEY-----', '-----BEGIN RSA PRIVATE KEY-----
+')
+        .replace('-----END RSA PRIVATE KEY-----',   '
+-----END RSA PRIVATE KEY-----');
+      // Add newlines every 64 chars in the base64 body
+      const lines = k.split('
+');
+      const fixed = lines.map(l => {
+        if (l.startsWith('-----')) return l;
+        return l.match(/.{1,64}/g)?.join('
+') || l;
+      });
+      k = fixed.join('
+');
+    }
+    return k;
+  })(),
 };
 
 const KALSHI_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
@@ -298,18 +330,36 @@ async function agentTick() {
 }
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
+// Debug endpoint — shows which env vars are detected
+app.get('/api/debug', (req, res) => res.json({
+  hasKeyId:     !!ENV.KALSHI_KEY_ID,
+  keyIdLength:  ENV.KALSHI_KEY_ID.length,
+  hasPrivKey:   !!ENV.KALSHI_PRIVATE_KEY,
+  privKeyStart: ENV.KALSHI_PRIVATE_KEY.slice(0,30)||'NOT SET',
+  nodeVersion:  process.version,
+  uptime:       Math.floor(process.uptime())+'s',
+}));
+
 app.get('/api/state', (req, res) => res.json({
   ...state,
   config: { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
 }));
 
 app.post('/api/agent/start', async (req, res) => {
-  if (!ENV.KALSHI_KEY_ID || !ENV.KALSHI_PRIVATE_KEY)
-    return res.status(400).json({ error: 'Set KALSHI_KEY_ID and KALSHI_PRIVATE_KEY in Railway → Variables' });
+  if (!ENV.KALSHI_KEY_ID)
+    return res.status(400).json({ error: 'KALSHI_KEY_ID not set in Railway Variables' });
+  if (!ENV.KALSHI_PRIVATE_KEY)
+    return res.status(400).json({ error: 'KALSHI_PRIVATE_KEY not set in Railway Variables' });
+  // Test the key works before starting
+  try {
+    await loadBalance();
+  } catch(e) {
+    return res.status(400).json({ error: 'Kalshi auth failed: '+e.message.slice(0,100) });
+  }
   state.running = true;
   setStatus('Agent started');
   await loadMarkets();
-  res.json({ ok: true });
+  res.json({ ok: true, balance: state.balance });
 });
 
 app.post('/api/agent/stop', (req, res) => {
