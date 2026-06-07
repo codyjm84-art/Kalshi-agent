@@ -251,22 +251,17 @@ async function loadMarkets() {
 async function placeOrder(ticker, side, priceInCents) {
   if (!ENV.KALSHI_KEY_ID) throw new Error('KALSHI_KEY_ID not set in Railway Variables');
   const stake = Math.max(0.01, +(state.balance * state.model.copyPct).toFixed(2));
-  const count = Math.max(1, Math.floor(stake * 100 / priceInCents));
-
+  const intCount = Math.max(1, Math.floor(stake * 100 / priceInCents));
   const yesPrice = side === 'yes' ? priceInCents : 100 - priceInCents;
-  const noPrice  = side === 'no'  ? priceInCents : 100 - priceInCents;
-  const intCount = Math.max(1, Math.floor(count));
 
-  // Kalshi v2 order body — action is required
+  // Use market order (type='market') for immediate execution
+  // Limit orders sit unfilled if price doesn't match — market orders fill instantly
   const body = {
     ticker,
     action:          'buy',
-    action:          'buy',
-    type:            'limit',
+    type:            'market',
     side,
     count:           intCount,
-    yes_price:       yesPrice,
-    expiration_ts:   Math.floor(Date.now() / 1000) + 86400,
     client_order_id: Date.now().toString(),
   };
 
@@ -275,25 +270,29 @@ async function placeOrder(ticker, side, priceInCents) {
     console.error('[Order] Error:', e.message);
     throw e;
   });
-  state.balance -= stake;
 
+  state.balance -= stake;
+  const market = state.markets.find(m => m.ticker === ticker);
   const entry = {
-    id:     data.order?.order_id || 'unknown',
+    id:     data.order?.order_id || ticker+'-'+Date.now(),
     ticker, side, stake,
     price:  priceInCents,
-    count: intCount,
+    count:  intCount,
+    title:  market ? market.title : ticker,
     ts:     Date.now(),
     status: 'open',
+    synced: false,
   };
   state.openOrders.push(entry);
   state.orderLog.unshift(entry);
   state.orderLog = state.orderLog.slice(0, 100);
-
   broadcast('order',   entry);
   broadcast('balance', state.balance);
-  setStatus(`Order placed: ${side.toUpperCase()} ${ticker} · $${stake} · ${count} contracts`);
+  setStatus(`Order placed: ${side.toUpperCase()} ${ticker} · $${stake.toFixed(2)} · ${intCount} contracts`);
+  console.log('[Kalshi] Order placed:', side.toUpperCase(), ticker, '$'+stake.toFixed(2), intCount, 'contracts');
   return data;
 }
+
 
 // ─── Stop loss monitor ────────────────────────────────────────────────────────
 async function checkStopLosses() {
@@ -763,7 +762,7 @@ async function agentTick() {
     // Detect signals and run auto-trading
     if (state.markets.length > 0) {
       state.signals = detectSignals(state.markets);
-      broadcast('signals', state.signals.slice(0, 10));
+      broadcast('signals', state.signals);
       await runAutoTrading(state.signals);
     }
 
@@ -1148,7 +1147,7 @@ function mergeState(d){
   if(d.config)state.config=d.config;
   if(d.model)state.model=d.model;
   if(d.marketsUpdated)state.marketsUpdated=d.marketsUpdated;
-  if(d.signals)state.signals=d.signals;
+  if(d.signals&&d.signals.length)state.signals=d.signals;
   if(d.autoLog)state.autoLog=d.autoLog;
   if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
   if(d.settings)state.settings=d.settings;
