@@ -802,8 +802,14 @@ function renderMarkets(){
       return(DASH_KW[activeCategory]||[]).some(k=>t.includes(k));
     });
 
-  const updStr=state.marketsUpdated?(' · updated '+new Date(state.marketsUpdated).toLocaleTimeString()):'';
-  $('mkt-count').textContent=filtered.length+' markets'+updStr;
+  const updStr=state.marketsUpdated?new Date(state.marketsUpdated).toLocaleTimeString():'never';
+  const mktEl=$('mkt-count');
+  if(mktEl){
+    mktEl.innerHTML=filtered.length+' markets · <span style="color:#00e5a0">⟳ '+updStr+'</span>';
+    // Flash green briefly to show update
+    mktEl.style.opacity='0.4';
+    setTimeout(()=>mktEl.style.opacity='1',200);
+  }
   $('bm').textContent=filtered.length;
 
   if(!filtered.length){el.innerHTML='<div class="empty">NO '+activeCategory.toUpperCase()+' MARKETS<br><br>Tap ↺ Markets in Settings</div>';return;}
@@ -979,8 +985,11 @@ document.addEventListener('DOMContentLoaded', function(){
         renderOrders();
         renderModel();
         updateAgentBtn();
-        // Re-render markets if we have new data
-        if(d.markets&&d.markets.length) renderMarkets();
+        // Re-render markets to show updated prices
+        if(d.markets&&d.markets.length){
+          state.markets=d.markets;
+          renderMarkets();
+        }
       })
       .catch(()=>{
         failCount++;
