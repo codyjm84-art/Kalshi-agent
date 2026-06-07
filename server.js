@@ -158,40 +158,66 @@ async function loadBalance() {
 async function loadMarkets() {
   try {
     setStatus('Loading markets…');
-    // Use authenticated markets endpoint
-    const res = await kalFetch('GET', '/markets?limit=1000&status=open');
-    const markets_raw = res.markets || [];
 
-    state.markets = markets_raw
-      .filter(m => {
-        const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100)
-                  : m.yes_bid || m.last_price || 50;
-        return yes >= state.settings.minOdds && yes <= 100 - state.settings.minOdds;
-      })
-      .map(m => {
-        const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100)
-                  : m.yes_bid || 50;
-        // Build readable title: event_ticker gives context, yes_sub_title is the outcome
-        const sub = m.yes_sub_title || '';
-        const evt = (m.event_ticker || '').replace(/-/g,' ').replace(/[A-Z]+/g, w=>w[0]+w.slice(1).toLowerCase());
-        const title = sub ? `${evt}: ${sub}` : (m.title || evt || m.ticker);
-        return {
-          ticker:     m.ticker,
-          title,
-          yes_bid:    yes,
-          no_bid:     100 - yes,
-          volume:     parseFloat(m.volume_fp || m.volume || 0),
-          volume_24h: parseFloat(m.volume_24h_fp || 0),
-          category:   (m.category || '').toLowerCase(),
-          close_time: m.close_time,
-        };
-      });
+    // Try events endpoint first (has readable titles + categories)
+    let markets = [];
+    try {
+      const evRes = await kalFetch('GET', '/events?limit=200&status=open&with_nested_markets=true');
+      const events = evRes.events || [];
+      for (const ev of events) {
+        const evTitle = ev.title || ev.event_ticker || '';
+        const cat = (ev.category || '').toLowerCase();
+        for (const m of (ev.markets || [])) {
+          const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100)
+                    : m.yes_bid || 50;
+          if (yes < state.settings.minOdds || yes > 100 - state.settings.minOdds) continue;
+          const sub = m.yes_sub_title || '';
+          markets.push({
+            ticker:     m.ticker,
+            title:      sub ? `${evTitle}: ${sub}` : evTitle,
+            yes_bid:    yes,
+            no_bid:     100 - yes,
+            volume:     parseFloat(m.volume_fp || 0),
+            volume_24h: parseFloat(m.volume_24h_fp || 0),
+            category:   cat,
+          });
+        }
+      }
+      setStatus(`${markets.length} markets loaded`);
+    } catch(evErr) {
+      // Fallback: markets endpoint only has yes_sub_title as the question
+      logError('Events fallback: ' + evErr.message);
+      const mRes = await kalFetch('GET', '/markets?limit=1000&status=open');
+      const raw = mRes.markets || [];
+      markets = raw
+        .filter(m => {
+          const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100)
+                    : m.yes_bid || 50;
+          return yes >= state.settings.minOdds && yes <= 100 - state.settings.minOdds;
+        })
+        .map(m => {
+          const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100)
+                    : m.yes_bid || 50;
+          // yes_sub_title is the actual readable question on Kalshi
+          const title = m.yes_sub_title || m.title || m.ticker;
+          return {
+            ticker:     m.ticker,
+            title,
+            yes_bid:    yes,
+            no_bid:     100 - yes,
+            volume:     parseFloat(m.volume_fp || 0),
+            volume_24h: parseFloat(m.volume_24h_fp || 0),
+            category:   (m.category || '').toLowerCase(),
+          };
+        });
+      setStatus(`${markets.length} markets loaded (fallback)`);
+    }
 
+    state.markets = markets;
     broadcast('markets', state.markets.slice(0, 200));
-    setStatus(`${state.markets.length} markets loaded`);
   } catch(e) {
     logError(e);
-    setStatus('Markets load failed: ' + e.message.slice(0, 50));
+    setStatus('Markets failed: ' + e.message.slice(0, 50));
   }
 }
 
