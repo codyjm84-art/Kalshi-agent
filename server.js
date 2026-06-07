@@ -536,7 +536,6 @@ function dedupeOrders() {
   const oseen = new Map();
   for (const o of state.openOrders) oseen.set(o.ticker, o);
   state.openOrders = Array.from(oseen.values());
-  console.log('[Dedup] orderLog:', state.orderLog.map(o=>o.ticker+'='+o.status).join(', '));
 }
 
 async function syncKalshiPositions() {
@@ -627,7 +626,9 @@ async function syncKalshiPositions() {
       const contracts = parseFloat(pos.position_fp || 0);
       if (contracts === 0) continue;
       const alreadyTracked = state.openOrders.find(o => o.ticker === ticker);
-      if (!alreadyTracked) {
+      // Skip if already marked as settled/won/lost in orderLog
+      const isSettled = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'||l.status==='settled'));
+      if (!alreadyTracked && !isSettled) {
         const stake    = parseFloat(pos.total_traded_dollars || pos.market_exposure_dollars || 0);
         const count    = Math.abs(contracts);
         const price    = count > 0 ? Math.round((stake / count) * 100) : 50;
@@ -780,7 +781,6 @@ app.get('/api/signals', (req, res) => res.json({ signals: state.signals, autoLog
 
 app.get('/api/state', (req, res) => {
   dedupeOrders(); // always return clean deduplicated orders
-  console.log('[State] orderLog:', state.orderLog.map(o=>o.ticker+'='+o.status+'(pnl:'+o.pnl+')').join(', '));
   res.json({
   ...state,
   config: { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
