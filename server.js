@@ -209,7 +209,7 @@ async function loadMarkets() {
     } catch(evErr) {
       // Fallback: markets endpoint only has yes_sub_title as the question
       logError('Events fallback: ' + evErr.message);
-      const mRes = await kalFetch('GET', '/markets?limit=5000&status=open');
+      const mRes = await kalFetch('GET', '/markets?limit=1000&status=open');
       const raw = mRes.markets || [];
       markets = raw
         .filter(m => {
@@ -519,12 +519,18 @@ async function syncKalshiPositions() {
   try {
     const data = await kalFetch('GET', '/portfolio/positions');
     // Log raw response keys to diagnose field names
-    console.log('[Positions] response keys:', Object.keys(data));
-    console.log('[market_positions count]:', (data.market_positions||[]).length);
-    console.log('[market_positions first]:', JSON.stringify((data.market_positions||[])[0]||{}).slice(0,300));
-    console.log('[event_positions count]:', (data.event_positions||[]).length);
-    console.log('[event_positions first]:', JSON.stringify((data.event_positions||[])[0]||{}).slice(0,300));
-    const positions = data.market_positions || data.event_positions || [];
+    // Log full structure to diagnose
+    const mp = Array.isArray(data.market_positions) ? data.market_positions
+               : typeof data.market_positions === 'object' ? Object.values(data.market_positions||{})
+               : [];
+    const ep = Array.isArray(data.event_positions) ? data.event_positions
+               : typeof data.event_positions === 'object' ? Object.values(data.event_positions||{})
+               : [];
+    console.log('[market_positions] type:', typeof data.market_positions, 'len:', mp.length);
+    console.log('[market_positions] first:', JSON.stringify(mp[0]||{}).slice(0,300));
+    console.log('[event_positions] type:', typeof data.event_positions, 'len:', ep.length);
+    console.log('[event_positions] first:', JSON.stringify(ep[0]||{}).slice(0,300));
+    const positions = [...mp, ...ep];
     for (const pos of positions) {
       const ticker = pos.ticker || pos.market_ticker;
       if (!ticker) continue;
@@ -1316,10 +1322,10 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`KALSHI_PRIVATE_KEY set: ${!!ENV.KALSHI_PRIVATE_KEY}`);
 });
 setInterval(agentTick, 15_000);
-// Refresh market prices every 15 seconds (same as agent tick)
+// Refresh market prices every 45 seconds — avoid Kalshi rate limits
 setInterval(async () => {
   if (state.running) await loadMarkets();
-}, 15_000);
+}, 45_000);
 
 // Pre-load markets on boot
 setTimeout(async () => {
