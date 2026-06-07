@@ -423,7 +423,22 @@ app.post('/api/traders/unfollow', (req, res) => {
 // WebSocket removed — clients poll /api/state directly
 
 // ─── Serve dashboard ──────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.sendFile(join(__dirname, 'public', 'index.html')));
+app.get('/', (req, res) => {
+  const filePath = join(__dirname, 'public', 'index.html');
+  console.log('Serving dashboard from:', filePath);
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.error('Dashboard file not found:', filePath, err.message);
+      res.send('<html><body style="background:#07080f;color:#fff;font-family:monospace;padding:20px">'
+        + '<h2>⚡ Kalshi Agent Server Running</h2>'
+        + '<p style="color:#00e5a0">Server is live. Dashboard file missing from /public/index.html</p>'
+        + '<p>Check that public/index.html was uploaded to GitHub correctly.</p>'
+        + '<p><a href="/api/state" style="color:#4a9eff">View /api/state</a> · '
+        + '<a href="/api/debug" style="color:#4a9eff">View /api/debug</a></p>'
+        + '</body></html>');
+    }
+  });
+});
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 // Railway requires binding to 0.0.0.0
