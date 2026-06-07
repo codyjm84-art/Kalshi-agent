@@ -158,32 +158,35 @@ async function loadBalance() {
 async function loadMarkets() {
   try {
     setStatus('Loading markets…');
-    // Events API gives proper titles and categories
-    const res = await fetch(`${KALSHI_BASE}/events?limit=200&status=open`);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    const events = data.events || [];
-    const markets = [];
-    for (const ev of events) {
-      const evTitle  = ev.title || '';
-      const category = (ev.category || '').toLowerCase();
-      for (const m of (ev.markets || [])) {
-        const yesBid = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100) : 50;
-        if (yesBid < state.settings.minOdds || yesBid > 100 - state.settings.minOdds) continue;
-        const yesLabel = m.yes_sub_title || '';
-        const title    = yesLabel ? `${evTitle}: ${yesLabel}` : evTitle;
-        markets.push({
+    // Use authenticated markets endpoint
+    const res = await kalFetch('GET', '/markets?limit=1000&status=open');
+    const markets_raw = res.markets || [];
+
+    state.markets = markets_raw
+      .filter(m => {
+        const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100)
+                  : m.yes_bid || m.last_price || 50;
+        return yes >= state.settings.minOdds && yes <= 100 - state.settings.minOdds;
+      })
+      .map(m => {
+        const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100)
+                  : m.yes_bid || 50;
+        // Build readable title: event_ticker gives context, yes_sub_title is the outcome
+        const sub = m.yes_sub_title || '';
+        const evt = (m.event_ticker || '').replace(/-/g,' ').replace(/[A-Z]+/g, w=>w[0]+w.slice(1).toLowerCase());
+        const title = sub ? `${evt}: ${sub}` : (m.title || evt || m.ticker);
+        return {
           ticker:     m.ticker,
           title,
-          yes_bid:    yesBid,
-          no_bid:     100 - yesBid,
-          volume:     parseFloat(m.volume_fp || 0),
+          yes_bid:    yes,
+          no_bid:     100 - yes,
+          volume:     parseFloat(m.volume_fp || m.volume || 0),
           volume_24h: parseFloat(m.volume_24h_fp || 0),
-          category,
-        });
-      }
-    }
-    state.markets = markets;
+          category:   (m.category || '').toLowerCase(),
+          close_time: m.close_time,
+        };
+      });
+
     broadcast('markets', state.markets.slice(0, 200));
     setStatus(`${state.markets.length} markets loaded`);
   } catch(e) {
