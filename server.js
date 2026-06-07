@@ -518,7 +518,10 @@ async function syncKalshiPositions() {
   // Sync positions placed directly on Kalshi website
   try {
     const data = await kalFetch('GET', '/portfolio/positions');
-    const positions = data.positions || data.market_positions || [];
+    // Log raw response keys to diagnose field names
+    console.log('[Positions] response keys:', Object.keys(data));
+    console.log('[Positions] first item:', JSON.stringify((Object.values(data)[0]||[])[0]||{}).slice(0,200));
+    const positions = data.positions || data.market_positions || data.event_positions || [];
     for (const pos of positions) {
       const ticker = pos.ticker || pos.market_ticker;
       if (!ticker) continue;
@@ -544,7 +547,9 @@ async function syncKalshiPositions() {
     }
     // Also sync filled orders
     const fills = await kalFetch('GET', '/portfolio/fills?limit=50');
-    const fillList = fills.fills || [];
+    console.log('[Fills] response keys:', Object.keys(fills));
+    console.log('[Fills] first item:', JSON.stringify((fills.fills||fills.orders||[])[0]||{}).slice(0,200));
+    const fillList = fills.fills || fills.orders || [];
     for (const f of fillList) {
       const ticker = f.ticker || f.market_ticker;
       const alreadyTracked = state.orderLog.find(o => o.id === f.fill_id || o.id === f.order_id);
