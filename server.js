@@ -275,10 +275,24 @@ async function placeOrder(ticker, side, priceInCents) {
   };
 
   console.log('[Order] Placing:', JSON.stringify(body));
-  const data = await kalFetch('POST', '/portfolio/orders', body).catch(e => {
-    console.error('[Order] Error:', e.message);
-    throw e;
-  });
+  let data;
+  try {
+    data = await kalFetch('POST', '/portfolio/orders', body);
+  } catch(e) {
+    // fill_or_kill fails when not enough volume — fall back to regular limit
+    if (e.message.includes('fill_or_kill') || e.message.includes('insufficient')) {
+      console.log('[Order] FOK failed, retrying as regular limit');
+      const fallback = {...body};
+      delete fallback.time_in_force;
+      data = await kalFetch('POST', '/portfolio/orders', fallback).catch(e2 => {
+        console.error('[Order] Error:', e2.message);
+        throw e2;
+      });
+    } else {
+      console.error('[Order] Error:', e.message);
+      throw e;
+    }
+  }
 
   state.balance -= stake;
   const market = state.markets.find(m => m.ticker === ticker);
@@ -897,7 +911,6 @@ app.get('/api/state', (req, res) => {
   autoLog: state.autoLog || [],
   autoTrade: state.autoTrade,
   });
-  console.log('[State] Sending signals count:', (state.signals||[]).length);
 });
 
 app.post('/api/agent/start', async (req, res) => {
