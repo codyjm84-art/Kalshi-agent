@@ -519,33 +519,79 @@ async function runAutoTrading(signals) {
 async function syncKalshiPositions() {
   // Sync positions placed directly on Kalshi website
   try {
-    // First check if any previously open orders have settled
-    // by fetching settled positions
+    // Cross-reference executed orders with active positions to find settled trades
+    // Any executed order whose ticker is NOT in active market_positions = settled
     try {
-      const settledRes = await kalFetch('GET', '/portfolio/positions?settlement_status=settled&limit=50');
-      const settledPos = Object.values(settledRes.market_positions || {});
-      for (const sp of settledPos) {
-        const ticker = sp.ticker;
+      const execAll = await kalFetch('GET', '/portfolio/orders?limit=100&status=executed');
+      const allExec = execAll.orders || [];
+      const activePosRes = await kalFetch('GET', '/portfolio/positions');
+      const activePos = Object.values(activePosRes.market_positions || {});
+      const activeTickers = new Set(activePos.map(p => p.ticker));
+
+      for (const o of allExec) {
+        const ticker = o.ticker;
         if (!ticker) continue;
-        const order = state.openOrders.find(o => o.ticker === ticker && o.status === 'open');
-        if (!order) continue;
-        // Market settled — determine win/loss from pnl
-        const pnl = parseFloat(sp.realized_pnl_dollars || 0);
-        const won = pnl > 0;
-        order.status = won ? 'won' : 'lost';
-        order.pnl    = +pnl.toFixed(4);
-        order.result = won ? 'won' : 'lost';
-        // Remove from open orders
-        state.openOrders = state.openOrders.filter(o => o.ticker !== ticker);
-        // Update P&L
-        state.pnl = +(state.pnl + pnl).toFixed(4);
-        if (won) { state.model.sessionWins++; state.model.totalGain += pnl; }
-        else     { state.model.sessionLosses++; state.model.totalLoss += Math.abs(pnl); }
-        broadcast('order', order);
-        broadcast('tick', {balance:state.balance, pnl:state.pnl, secured:state.secured, slHits:state.slHits, ts:new Date().toISOString()});
-        console.log('[Settled]', ticker, won?'WON':'LOST', '$'+pnl.toFixed(2));
+        const isActive = activeTickers.has(ticker);
+        if (isActive) continue; // still open — skip
+
+        // This order is settled — check if already recorded as won/lost
+        const existing = state.orderLog.find(l => l.id === o.order_id);
+        if (existing && (existing.status === 'won' || existing.status === 'lost')) continue;
+
+        // Fetch settlement pnl from fills
+        const side  = o.side || o.outcome_side || 'yes';
+        const count = parseFloat(o.fill_count_fp || 1);
+        const price = parseFloat(o.yes_price_dollars || 0.5);
+        const cost  = parseFloat(o.taker_fill_cost_dollars || count * price);
+        const fees  = parseFloat(o.taker_fees_dollars || 0);
+
+        // If settlement_payout_dollars available use it, else try payout from fills
+        let pnl = null;
+        let won = null;
+        try {
+          const mktRes = await kalFetch('GET', '/markets/'+ticker);
+          const mkt = mktRes.market || {};
+          if (mkt.result === 'yes' || mkt.result === 'no') {
+            won = (side === mkt.result);
+            pnl = won ? +(count * (1 - price) - fees).toFixed(4) : +(-cost - fees).toFixed(4);
+          }
+        } catch(e2) {}
+
+        const entry = {
+          id:     o.order_id,
+          ticker,
+          side,
+          stake:  +cost.toFixed(4),
+          fees:   +fees.toFixed(4),
+          price:  Math.round(price * 100),
+          count:  +count.toFixed(2),
+          pnl,
+          result: won === true ? 'won' : won === false ? 'lost' : 'settled',
+          ts:     new Date(o.created_time || Date.now()).getTime(),
+          status: won === true ? 'won' : won === false ? 'lost' : 'settled',
+          synced: true,
+          title:  ticker,
+        };
+
+        // Update or insert in orderLog
+        if (existing) {
+          Object.assign(existing, entry);
+        } else {
+          state.orderLog.unshift(entry);
+          state.orderLog = state.orderLog.slice(0, 100);
+        }
+        // Remove from openOrders
+        state.openOrders = state.openOrders.filter(o2 => o2.ticker !== ticker);
+
+        if (pnl !== null) {
+          state.pnl = +(state.pnl + pnl).toFixed(4);
+          if (pnl > 0) { state.model.sessionWins++; state.model.totalGain += pnl; }
+          else { state.model.sessionLosses++; state.model.totalLoss += Math.abs(pnl); }
+        }
+        broadcast('order', entry);
+        console.log('[Settled]', ticker, entry.status.toUpperCase(), pnl !== null ? '$'+pnl.toFixed(2) : '(pending result)');
       }
-    } catch(e) { /* settled positions endpoint may not always work */ }
+    } catch(e) { logError('Settlement check: ' + e.message); }
     const data = await kalFetch('GET', '/portfolio/positions');
     // Log raw response keys to diagnose field names
     // market_positions is an object keyed by ticker — extract values
