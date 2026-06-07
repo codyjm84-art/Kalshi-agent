@@ -772,10 +772,13 @@ app.get('/api/debug', (req, res) => res.json({
 
 app.get('/api/signals', (req, res) => res.json({ signals: state.signals, autoLog: state.autoLog }));
 
-app.get('/api/state', (req, res) => res.json({
+app.get('/api/state', (req, res) => {
+  dedupeOrders(); // always return clean deduplicated orders
+  res.json({
   ...state,
   config: { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
-}));
+  });
+});
 
 app.post('/api/agent/start', async (req, res) => {
   if (!ENV.KALSHI_KEY_ID)
@@ -1424,6 +1427,12 @@ document.addEventListener('DOMContentLoaded', function(){
         if(d.markets&&d.markets.length){
           state.markets=d.markets;
           renderMarkets();
+        }
+        // Re-render orders with fresh deduplicated data
+        if(d.orderLog){
+          state.orderLog=d.orderLog;
+          renderOrders();
+          $('bo').textContent=d.orderLog.length;
         }
       })
       .catch(()=>{
