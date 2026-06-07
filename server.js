@@ -3,11 +3,15 @@
 // Deploy on Railway.app — iPhone dashboard at your Railway URL
 // ─────────────────────────────────────────────────────────────────────────────
 
-import express from 'express';
-import fetch   from 'node-fetch';
-// ws module not used — HTTP polling only
-import { createServer }    from 'http';
-import crypto  from 'crypto';
+import express  from 'express';
+import fetch    from 'node-fetch';
+import crypto   from 'crypto';
+import { createServer }  from 'http';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
 
 const app    = express();
 const server = createServer(app);
@@ -15,7 +19,7 @@ const server = createServer(app);
 const PORT   = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(join(__dirname, 'public')));
 
 // ─── Environment variables (set in Railway → Variables) ───────────────────────
 function normalizePrivKey(k) {
@@ -417,7 +421,7 @@ app.post('/api/traders/unfollow', (req, res) => {
 // WebSocket removed — clients poll /api/state directly
 
 // ─── Serve dashboard ──────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.sendFile('index.html', { root: 'public' }));
+app.get('/', (req, res) => res.sendFile(join(__dirname, 'public', 'index.html')));
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 // Railway requires binding to 0.0.0.0
