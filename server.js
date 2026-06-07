@@ -259,14 +259,17 @@ async function placeOrder(ticker, side, priceInCents) {
   const intCount = Math.max(1, Math.floor(stake * 100 / priceInCents));
   const yesPrice = side === 'yes' ? priceInCents : 100 - priceInCents;
 
-  // Use market order (type='market') for immediate execution
-  // Limit orders sit unfilled if price doesn't match — market orders fill instantly
+  // Kalshi requires yes_price even for market orders
+  // Use ask price = bid + 2¢ buffer to ensure immediate fill
+  const askPrice = Math.min(99, yesPrice + 2);
+
   const body = {
     ticker,
     action:          'buy',
     type:            'market',
     side,
     count:           intCount,
+    yes_price:       askPrice,
     client_order_id: Date.now().toString(),
   };
 
@@ -500,6 +503,9 @@ function detectSignals(markets) {
   return result;
 }
 
+// Track recently failed tickers to avoid retry loops
+const failedTickers = new Map(); // ticker -> timestamp
+
 async function runAutoTrading(signals) {
   if (!state.autoTrade || !signals.length) return;
   if (state.balance < 0.50) { setStatus('Auto-trade: balance too low'); return; }
@@ -507,14 +513,23 @@ async function runAutoTrading(signals) {
   const openCount = state.openOrders.filter(o => o.status === 'open').length;
   if (openCount >= state.model.maxOpen) return;
 
-  // Take top signal that we haven't already traded
+  // Clear failed tickers older than 5 minutes
+  const now = Date.now();
+  for (const [t, ts] of failedTickers) {
+    if (now - ts > 300_000) failedTickers.delete(t);
+  }
+
+  // Take top signal that we haven't already traded and hasn't failed recently
   const openTickers = new Set(state.openOrders.map(o => o.ticker));
-  const candidate   = signals.find(s => !openTickers.has(s.ticker) && s.score >= 40);
+  const candidate   = signals.find(s => !openTickers.has(s.ticker) && !failedTickers.has(s.ticker) && s.score >= 40);
   if (!candidate) return;
 
   try {
     setStatus(`Auto-trade: ${candidate.type} on ${candidate.ticker} (score ${candidate.score})`);
-    await placeOrder(candidate.ticker, candidate.side, candidate.price);
+    await placeOrder(candidate.ticker, candidate.side, candidate.price).catch(e => {
+      failedTickers.set(candidate.ticker, Date.now());
+      throw e;
+    });
 
     const logEntry = {
       ts:     Date.now(),
@@ -1154,7 +1169,7 @@ function mergeState(d){
   if(d.config)state.config=d.config;
   if(d.model)state.model=d.model;
   if(d.marketsUpdated)state.marketsUpdated=d.marketsUpdated;
-  if(d.signals&&d.signals.length)state.signals=d.signals;
+  if(d.signals!==undefined)state.signals=d.signals;
   if(d.autoLog)state.autoLog=d.autoLog;
   if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
   if(d.settings)state.settings=d.settings;
