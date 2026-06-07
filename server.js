@@ -48,7 +48,7 @@ const ENV = {
   KALSHI_PRIVATE_KEY: normalizePrivKey(process.env.KALSHI_PRIVATE_KEY || ''),
 };
 
-const KALSHI_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
+const KALSHI_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 
 // ─── Category keyword filters ─────────────────────────────────────────────────
 const CAT_KW = {
@@ -157,7 +157,7 @@ async function loadMarkets() {
   try {
     setStatus('Loading markets…');
     // Public endpoint — no auth required
-    const res  = await fetch(`${KALSHI_BASE}/markets?limit=200&status=open`);
+    const res  = await fetch(`${KALSHI_BASE}/markets?limit=200&status=open&cursor=`);
     const data = await res.json();
     const allKW = state.settings.categories.flatMap(c => CAT_KW[c] || []);
     state.markets = (data.markets || []).filter(m => {
