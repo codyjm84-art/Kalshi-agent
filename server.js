@@ -148,7 +148,16 @@ function kalshiSign(method, path) {
   return { ts, sig: sig.toString('base64') };
 }
 
+// Rate limiter — minimum gap between Kalshi API requests
+let lastKalshiRequest = 0;
+const MIN_REQUEST_GAP = 500; // 500ms minimum between requests (max 2/sec)
+
 async function kalFetch(method, path, body = null) {
+  // Enforce rate limit gap
+  const _now = Date.now();
+  const _gap = _now - lastKalshiRequest;
+  if (_gap < MIN_REQUEST_GAP) await new Promise(r => setTimeout(r, MIN_REQUEST_GAP - _gap));
+  lastKalshiRequest = Date.now();
   const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
   if (ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) {
     const { ts, sig } = kalshiSign(method, path);
@@ -1727,11 +1736,11 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`KALSHI_KEY_ID set: ${!!ENV.KALSHI_KEY_ID}`);
   console.log(`KALSHI_PRIVATE_KEY set: ${!!ENV.KALSHI_PRIVATE_KEY}`);
 });
-setInterval(agentTick, 15_000);
-// Refresh market prices every 45 seconds — avoid Kalshi rate limits
+setInterval(agentTick, 30_000);
+// Refresh market prices every 90 seconds
 setInterval(async () => {
   if (state.running) await loadMarkets();
-}, 45_000);
+}, 90_000);
 
 // Pre-load markets on boot
 setTimeout(async () => {
