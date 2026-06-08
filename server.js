@@ -900,6 +900,8 @@ async function syncKalshiPositions() {
         const pnl      = parseFloat(pos.realized_pnl_dollars || 0);
         const entry = {
           id:     ticker + '-synced',
+          marketValue: +parseFloat(pos.market_exposure_dollars||0).toFixed(4),
+          unrealized:  +(parseFloat(pos.market_exposure_dollars||0)-stake).toFixed(4),
           ticker,
           side:   contracts > 0 ? 'yes' : 'no',
           stake:  +stake.toFixed(4),
@@ -996,6 +998,11 @@ async function syncKalshiPositions() {
       }
     }
   } catch(e) { /* silent — positions sync is best-effort */ }
+
+  // Update positionValue from Kalshi's market_exposure_dollars
+  const totalExp = state.openOrders.filter(o=>o.status==='open'&&o.marketValue).reduce((s,o)=>s+(o.marketValue||0),0);
+  if(totalExp>0){state.positionValue=+totalExp.toFixed(2);broadcast('pnl_update',{pnl:state.pnl,balance:state.balance,positionValue:state.positionValue});}
+
   // Clean duplicates after every sync
   dedupeOrders();
   broadcast('orders_sync', state.orderLog);
