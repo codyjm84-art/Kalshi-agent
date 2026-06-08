@@ -346,6 +346,7 @@ async function placeOrder(ticker, side, priceInCents) {
 
 // ─── Stop loss monitor ────────────────────────────────────────────────────────
 async function checkStopLosses() {
+  state.positionValue = 0; // reset on each check
   for (const order of state.openOrders.filter(o => o.status === 'open')) {
     try {
       const data = await kalFetch('GET', `/markets/${order.ticker}`);
@@ -359,7 +360,9 @@ async function checkStopLosses() {
         : (m.no_bid || order.price);
       const cur = order.side === 'yes' ? yesBidRaw : noBidRaw;
       const slThreshold = order.price * (1 - state.settings.stopLoss);
-      console.log(`[SL Check] ${order.ticker} entry:${order.price}¢ cur:${cur}¢ threshold:${slThreshold.toFixed(1)}¢`);
+      const posVal = +(cur / 100 * (order.count || 1)).toFixed(4);
+      state.positionValue = +((state.positionValue || 0) + posVal).toFixed(4);
+      console.log(`[SL Check] ${order.ticker} entry:${order.price}¢ cur:${cur}¢ val:$${posVal.toFixed(2)} threshold:${slThreshold.toFixed(1)}¢`);
       if (cur === 0) {
         order.status = 'stopped';
         stoppedTickers.add(order.ticker);
@@ -1054,6 +1057,7 @@ app.get('/api/state', (req, res) => {
     markets: [], // markets served separately via /api/markets to avoid timeout
     config:  { hasKeys: !!(ENV.KALSHI_KEY_ID && ENV.KALSHI_PRIVATE_KEY) },
     signals: state.signals || [],
+  positionValue: +(state.positionValue||0).toFixed(2),
     autoLog: state.autoLog || [],
     autoTrade: state.autoTrade,
   });
@@ -1832,6 +1836,16 @@ document.addEventListener('DOMContentLoaded', function(){
   if(d.portfolioValue!==undefined)state.portfolioValue=d.portfolioValue;
   if(d.pnl!==undefined){state.pnl=d.pnl;updateStats();}
           renderSignals();
+          // Recalculate position value from live market prices
+          if(state.markets&&state.markets.length&&state.openOrders&&state.openOrders.length){
+            let pv=0;
+            for(const o of state.openOrders.filter(x=>x.status==='open')){
+              const mkt=state.markets.find(m=>m.ticker===o.ticker);
+              if(mkt){const cp=o.side==='yes'?(mkt.yes_bid||o.price):(mkt.no_bid||o.price);pv+=cp/100*(o.count||1);}
+            }
+            state.positionValue=+pv.toFixed(2);
+            const pe=$('s-port');if(pe)pe.textContent='$'+((state.balance||0)+pv).toFixed(2);
+          }
         }
       })
       .catch(()=>{
