@@ -350,7 +350,9 @@ async function checkStopLosses() {
       const data = await kalFetch('GET', `/markets/${order.ticker}`);
       const m    = data.market || {};
       const cur  = order.side === 'yes' ? (m.yes_bid || order.price) : (m.no_bid || order.price);
-      if (cur <= order.price * (1 - state.settings.stopLoss)) {
+      const slThreshold = order.price * (1 - state.settings.stopLoss);
+      console.log(`[SL Check] ${order.ticker} entry:${order.price}¢ cur:${cur}¢ threshold:${slThreshold.toFixed(1)}¢ synced:${order.synced}`);
+      if (cur <= slThreshold) {
         // Cancel the order
         await kalFetch('DELETE', `/portfolio/orders/${order.id}`).catch(() => {});
         order.status = 'stopped';
