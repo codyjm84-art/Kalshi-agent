@@ -568,15 +568,25 @@ function detectSignals(markets) {
   const MIN_TOTAL_VOL = 5000; // at least 5000 total contracts ever traded
   const SPIKE_MULTIPLIER = 5; // must be 5x average (was 3x)
 
-  const MAX_DAYS_TO_SETTLE = 14;
+  const MAX_DAYS_TO_SETTLE = 90; // expanded from 14 — most markets lack close_time
   const now14 = Date.now();
   const MAX_CLOSE_MS = now14 + MAX_DAYS_TO_SETTLE * 86400000;
-  const nearTermMarkets = markets.filter(m => {
-    if (!m.close_time) return false;
-    const ct = new Date(m.close_time).getTime();
-    return ct > now14 && ct <= MAX_CLOSE_MS;
-  });
-  console.log('[Signals] scanning near-term (<14d):', nearTermMarkets.length, 'of', markets.length, 'markets');
+
+  // Debug close_time distribution
+  const withClose = markets.filter(m=>m.close_time).length;
+  const within14 = markets.filter(m=>{if(!m.close_time)return false;const ct=new Date(m.close_time).getTime();return ct>now14&&ct<=now14+14*86400000;}).length;
+  const within90 = markets.filter(m=>{if(!m.close_time)return false;const ct=new Date(m.close_time).getTime();return ct>now14&&ct<=MAX_CLOSE_MS;}).length;
+  console.log('[Signals] close_time coverage:', withClose, 'of', markets.length, '| <14d:', within14, '| <90d:', within90);
+
+  // Use close_time filter if enough coverage, otherwise scan all markets
+  const nearTermMarkets = withClose > 100
+    ? markets.filter(m => {
+        if (!m.close_time) return false;
+        const ct = new Date(m.close_time).getTime();
+        return ct > now14 && ct <= MAX_CLOSE_MS;
+      })
+    : markets; // fallback if close_time not populated
+  console.log('[Signals] scanning:', nearTermMarkets.length, 'of', markets.length, 'markets');
 
   // Build full price history for all markets
   for (const m of markets) {
