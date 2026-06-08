@@ -885,7 +885,39 @@ async function syncKalshiPositions() {
     const positions = mp; // use market_positions — has ticker + position_fp fields
     const totalKalshiExposure = mp.reduce((s,p)=>s+parseFloat(p.market_exposure_dollars||0),0);
     console.log('[Positions] count:', mp.length, 'total_exposure: $'+totalKalshiExposure.toFixed(2));
-    mp.forEach(p=>console.log('[Pos]', p.ticker, 'contracts:', p.position_fp, 'exposure: $'+p.market_exposure_dollars, 'cost: $'+p.total_traded_dollars));
+    // Detect settled positions: contracts=0, cost>0, exposure=0 = LOST
+    for (const p of mp) {
+      const contracts = parseFloat(p.position_fp || 0);
+      const cost = parseFloat(p.total_traded_dollars || 0);
+      const exposure = parseFloat(p.market_exposure_dollars || 0);
+      const ticker = p.ticker;
+      if (!ticker || contracts !== 0 || cost === 0 || exposure !== 0) continue;
+      // This position settled at 0 = LOST
+      const existing = state.orderLog.find(l => l.ticker === ticker);
+      if (existing && (existing.status === 'won' || existing.status === 'lost')) continue;
+      const pnl = -cost;
+      if (existing) {
+        existing.status = 'lost';
+        existing.pnl = +pnl.toFixed(4);
+        existing.result = 'lost';
+      } else {
+        const entry = {
+          id: ticker+'-settled', ticker,
+          side: 'yes', stake: +cost.toFixed(4),
+          price: 50, count: 1, pnl: +pnl.toFixed(4),
+          status: 'lost', result: 'lost', synced: true,
+          ts: Date.now(),
+        };
+        state.orderLog.unshift(entry);
+      }
+      state.openOrders = state.openOrders.filter(o => o.ticker !== ticker);
+      state.pnl = +(state.pnl + pnl).toFixed(4);
+      state.model.sessionLosses++;
+      stoppedTickers.add(ticker);
+      state.stoppedSet = Array.from(stoppedTickers);
+      broadcast('order', existing || state.orderLog[0]);
+      console.log('[Auto-settled] LOST', ticker, '$'+pnl.toFixed(2));
+    }
     for (const pos of positions) {
       const ticker = pos.ticker || pos.market_ticker;
       if (!ticker) continue;
@@ -1003,8 +1035,12 @@ async function syncKalshiPositions() {
   } catch(e) { /* silent — positions sync is best-effort */ }
 
   // Update positionValue from Kalshi's market_exposure_dollars
-  const totalExp = state.openOrders.filter(o=>o.status==='open'&&o.marketValue).reduce((s,o)=>s+(o.marketValue||0),0);
-  if(totalExp>0){state.positionValue=+totalExp.toFixed(2);broadcast('pnl_update',{pnl:state.pnl,balance:state.balance,positionValue:state.positionValue});}
+  // Use Kalshi's exact exposure total
+  if(totalKalshiExposure>0){
+    state.positionValue=+totalKalshiExposure.toFixed(2);
+    broadcast('pnl_update',{pnl:state.pnl,balance:state.balance,positionValue:state.positionValue});
+    console.log('[Portfolio] position value: $'+state.positionValue.toFixed(2)+' cash: $'+state.balance.toFixed(2)+' total: $'+(state.balance+state.positionValue).toFixed(2));
+  }
 
   // Clean duplicates after every sync
   dedupeOrders();
