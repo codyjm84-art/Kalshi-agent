@@ -226,6 +226,33 @@ async function loadMarkets() {
           });
         }
       }
+      // Also fetch near-term markets (sports, daily crypto) separately
+      // These don't appear well in the events API
+      try {
+        const nearRes = await kalFetch('GET', '/markets?limit=200&status=open&min_close_ts='+Math.floor(Date.now()/1000)+'&max_close_ts='+Math.floor((Date.now()+30*86400000)/1000));
+        const nearRaw = nearRes.markets || [];
+        let added = 0;
+        for (const m of nearRaw) {
+          if (markets.find(x => x.ticker === m.ticker)) continue; // skip duplicates
+          const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100) : 50;
+          if (yes < state.settings.minOdds || yes > 100 - state.settings.minOdds) continue;
+          const title = m.yes_sub_title || m.title || m.ticker;
+          markets.push({
+            ticker:     m.ticker,
+            title,
+            yes_bid:    yes,
+            no_bid:     100 - yes,
+            volume:     parseFloat(m.volume_fp || 0),
+            volume_24h: parseFloat(m.volume_24h_fp || 0),
+            category:   (m.category || '').toLowerCase(),
+            close_time: m.close_time || null,
+            open_interest: parseFloat(m.open_interest_fp || 0),
+          });
+          added++;
+        }
+        if (added > 0) console.log('[Markets] added', added, 'near-term markets (<30d)');
+      } catch(e2) { /* silent */ }
+
       setStatus(`${markets.length} markets loaded`);
     } catch(evErr) {
       // Fallback: markets endpoint only has yes_sub_title as the question
