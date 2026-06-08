@@ -765,6 +765,33 @@ function dedupeOrders() {
 async function syncKalshiPositions() {
   // Sync positions placed directly on Kalshi website
   try {
+    // First check fills for settled payouts — most reliable settlement detection
+    try {
+      const fillsRes = await kalFetch('GET', '/portfolio/fills?limit=100');
+      const fills = fillsRes.fills || [];
+      console.log('[Fills] count:', fills.length, 'actions:', [...new Set(fills.map(f=>f.action))].join(','));
+      for (const f of fills) {
+        const ticker = f.ticker;
+        if (!ticker) continue;
+        // Only care about settlement fills (action = settlement or type = settlement)
+        if (f.action !== 'settlement' && f.type !== 'settlement') continue;
+        const existing = state.orderLog.find(l => l.ticker === ticker);
+        if (!existing || existing.status === 'won' || existing.status === 'lost') continue;
+        const pnl = parseFloat(f.revenue_dollars || f.amount || 0) - (existing.stake || 0);
+        const won = pnl > 0;
+        existing.status = won ? 'won' : 'lost';
+        existing.pnl = +pnl.toFixed(4);
+        existing.result = existing.status;
+        state.openOrders = state.openOrders.filter(o => o.ticker !== ticker);
+        state.pnl = +(state.pnl + pnl).toFixed(4);
+        if (won) { state.model.sessionWins++; }
+        else { state.model.sessionLosses++; }
+        broadcast('order', existing);
+        broadcast('pnl_update', { pnl: state.pnl, balance: state.balance });
+        console.log('[Settled via fills]', ticker, won ? 'WON' : 'LOST', '$'+pnl.toFixed(2));
+      }
+    } catch(e) { /* silent */ }
+
     // Cross-reference executed orders with active positions to find settled trades
     // Any executed order whose ticker is NOT in active market_positions = settled
     try {
