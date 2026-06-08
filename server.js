@@ -386,7 +386,7 @@ function checkProfitPull() {
 //   Minimum 4 contracts to apply rules (otherwise hold to settlement)
 
 async function checkProfitTaking() {
-  for (const order of state.openOrders.filter(o => o.status === 'open' && !o.synced)) {
+  for (const order of state.openOrders.filter(o => o.status === 'open')) {
     try {
       const data = await kalFetch('GET', `/markets/${order.ticker}`);
       const mkt  = data.market || {};
@@ -455,7 +455,7 @@ function flash_server(msg) {
 function runOptimizer() {
   const m = state.model;
   const settled = m.sessionWins + m.sessionLosses;
-  if (settled < 5 || settled % 10 !== 0 || m.lastOptAt === settled || m.optimizing) return;
+  if (settled < 3 || settled % 5 !== 0 || m.lastOptAt === settled || m.optimizing) return;
 
   m.optimizing = true;
   m.lastOptAt  = settled;
