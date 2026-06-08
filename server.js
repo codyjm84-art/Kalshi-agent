@@ -604,7 +604,19 @@ function detectSignals(markets) {
     }
   }
 
-  // Sort by score descending, dedupe by ticker (keep highest score per market)
+  // Boost scores for near-term markets
+  const now_sig = Date.now();
+  for (const s of signals) {
+    const ct = s.market&&s.market.close_time ? new Date(s.market.close_time).getTime() : null;
+    if (ct) {
+      const d = (ct - now_sig) / 86400000;
+      if (d < 7)        s.score = Math.round(s.score * 2.0);
+      else if (d < 30)  s.score = Math.round(s.score * 1.5);
+      else if (d < 90)  s.score = Math.round(s.score * 1.25);
+      else if (d < 180) s.score = Math.round(s.score * 1.1);
+    }
+  }
+  // Sort by score descending, dedupe by ticker
   const seen = new Set();
   const result = signals
     .sort((a,b) => b.score - a.score)
@@ -1278,7 +1290,7 @@ let state = {
   config:{hasKeys:false}
 };
 let activeCategory='All';
-const CATS=['All','Politics','Sports','Crypto','Economics'];
+const CATS=['All','Live','<180d','Politics','Sports','Crypto','Economics'];
 const CAT_KW={
   Politics:['election','president','congress','senate','trump','vote','govern','ukraine','iran','nato'],
   Sports:  ['nba','nfl','nhl','mlb','soccer','super bowl','world cup','championship','playoff','finals'],
@@ -1391,15 +1403,30 @@ function renderMarkets(){
     Crypto:    ['crypto','cryptocurrency'],
     Economics: ['economics','economy','finance','business'],
   };
-  let filtered=activeCategory==='All'
-    ?state.markets
-    :state.markets.filter(m=>{
+  let filtered;
+  if(activeCategory==='All'){
+    filtered=state.markets;
+  } else if(activeCategory==='Live'){
+    filtered=state.markets.filter(m=>{
+      if(!m.close_time)return false;
+      const ms=new Date(m.close_time).getTime()-now;
+      return ms>0&&ms<86400000;
+    });
+  } else if(activeCategory==='<180d'){
+    filtered=state.markets.filter(m=>{
+      if(!m.close_time)return false;
+      const ms=new Date(m.close_time).getTime()-now;
+      return ms>0&&ms<180*86400000;
+    });
+  } else {
+    filtered=state.markets.filter(m=>{
       const mc=(m.category||'').toLowerCase();
       const kalshiCats=DASH_CATS[activeCategory]||[];
       if(mc&&kalshiCats.some(c=>mc===c))return true;
       const t=(m.title||'').toLowerCase();
       return(DASH_KW[activeCategory]||[]).some(k=>t.includes(k));
     });
+  }
 
   const updStr=state.marketsUpdated?new Date(state.marketsUpdated).toLocaleTimeString():'never';
   const mktEl=$('mkt-count');
