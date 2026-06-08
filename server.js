@@ -765,30 +765,34 @@ function dedupeOrders() {
 async function syncKalshiPositions() {
   // Sync positions placed directly on Kalshi website
   try {
-    // First check fills for settled payouts — most reliable settlement detection
+    // Check settlement by fetching market result for each tracked order
     try {
-      const fillsRes = await kalFetch('GET', '/portfolio/fills?limit=100');
-      const fills = fillsRes.fills || [];
-      console.log('[Fills] count:', fills.length, 'actions:', [...new Set(fills.map(f=>f.action))].join(','));
-      for (const f of fills) {
-        const ticker = f.ticker;
-        if (!ticker) continue;
-        // Only care about settlement fills (action = settlement or type = settlement)
-        if (f.action !== 'settlement' && f.type !== 'settlement') continue;
-        const existing = state.orderLog.find(l => l.ticker === ticker);
-        if (!existing || existing.status === 'won' || existing.status === 'lost') continue;
-        const pnl = parseFloat(f.revenue_dollars || f.amount || 0) - (existing.stake || 0);
-        const won = pnl > 0;
-        existing.status = won ? 'won' : 'lost';
-        existing.pnl = +pnl.toFixed(4);
-        existing.result = existing.status;
-        state.openOrders = state.openOrders.filter(o => o.ticker !== ticker);
-        state.pnl = +(state.pnl + pnl).toFixed(4);
-        if (won) { state.model.sessionWins++; }
-        else { state.model.sessionLosses++; }
-        broadcast('order', existing);
-        broadcast('pnl_update', { pnl: state.pnl, balance: state.balance });
-        console.log('[Settled via fills]', ticker, won ? 'WON' : 'LOST', '$'+pnl.toFixed(2));
+      for (const entry of state.orderLog.filter(o => o.status === 'open' || o.status === 'filled')) {
+        // Only check orders not in active positions
+        if (activeTickers.has(entry.ticker)) continue;
+        try {
+          const mktRes = await kalFetch('GET', '/markets/' + entry.ticker);
+          const mkt = mktRes.market || {};
+          console.log('[Settlement check]', entry.ticker, 'status:', mkt.status, 'result:', mkt.result);
+          if (mkt.status === 'finalized' || mkt.result) {
+            const won = mkt.result === entry.side;
+            const count = entry.count || 1;
+            const price = (entry.price || 50) / 100;
+            // Payout: win = count * $1, lose = $0
+            const payout = won ? count * 1.0 : 0;
+            const pnl = +(payout - entry.stake).toFixed(4);
+            entry.status = won ? 'won' : 'lost';
+            entry.pnl = pnl;
+            entry.result = entry.status;
+            state.openOrders = state.openOrders.filter(o => o.ticker !== entry.ticker);
+            state.pnl = +(state.pnl + pnl).toFixed(4);
+            if (won) state.model.sessionWins++;
+            else state.model.sessionLosses++;
+            broadcast('order', entry);
+            broadcast('pnl_update', { pnl: state.pnl, balance: state.balance });
+            console.log('[Settled]', entry.ticker, entry.status.toUpperCase(), '$'+pnl.toFixed(2));
+          }
+        } catch(e2) { /* market fetch failed — skip */ }
       }
     } catch(e) { /* silent */ }
 
