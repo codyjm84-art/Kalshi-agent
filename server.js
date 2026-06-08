@@ -578,15 +578,10 @@ function detectSignals(markets) {
   const within90 = markets.filter(m=>{if(!m.close_time)return false;const ct=new Date(m.close_time).getTime();return ct>now14&&ct<=MAX_CLOSE_MS;}).length;
   console.log('[Signals] close_time coverage:', withClose, 'of', markets.length, '| <14d:', within14, '| <90d:', within90);
 
-  // Use close_time filter if enough coverage, otherwise scan all markets
-  const nearTermMarkets = withClose > 100
-    ? markets.filter(m => {
-        if (!m.close_time) return false;
-        const ct = new Date(m.close_time).getTime();
-        return ct > now14 && ct <= MAX_CLOSE_MS;
-      })
-    : markets; // fallback if close_time not populated
-  console.log('[Signals] scanning:', nearTermMarkets.length, 'of', markets.length, 'markets');
+  // Scan all markets but apply near-term score multiplier
+  // With only 61 markets closing <90d, filtering would miss too many opportunities
+  const nearTermMarkets = markets; // scan all, score boost handles prioritization
+  console.log('[Signals] scanning:', nearTermMarkets.length, 'markets | <14d:', within14, '| <90d:', within90);
 
   // Build full price history for all markets
   for (const m of markets) {
