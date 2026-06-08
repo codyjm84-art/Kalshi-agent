@@ -1480,15 +1480,24 @@ function sortBy(by){
     b.style.background=on?'#4a9eff18':'transparent';
     b.style.color=on?'#4a9eff':'#555';
   });
+  const now2=Date.now();
   const FF=new Date('2099-01-01').getTime();
-  if(by==='settlement')state.markets.sort((a,b)=>{
-    const ta=a.close_time?new Date(a.close_time).getTime():FF;
-    const tb=b.close_time?new Date(b.close_time).getTime():FF;
-    return ta-tb;
-  });
-  else if(by==='volume')state.markets.sort((a,b)=>(b.volume||0)-(a.volume||0));
+  if(by==='settlement'){
+    // Sort by soonest closing — markets with no close_time go last
+    // Filter out already-past markets first
+    state.markets.sort((a,b)=>{
+      const ta=a.close_time?new Date(a.close_time).getTime():FF;
+      const tb=b.close_time?new Date(b.close_time).getTime():FF;
+      // Push past markets to end
+      const aValid=ta>now2?ta:FF+1;
+      const bValid=tb>now2?tb:FF+1;
+      return aValid-bValid;
+    });
+  }
+  else if(by==='volume')state.markets.sort((a,b)=>(b.volume_24h||b.volume||0)-(a.volume_24h||a.volume||0));
   else if(by==='odds')state.markets.sort((a,b)=>Math.abs((a.yes_bid||50)-50)-Math.abs((b.yes_bid||50)-50));
-  else if(by==='hot')state.markets.sort((a,b)=>(b.volume||0)*Math.abs((b.yes_bid||50)-50)-(a.volume||0)*Math.abs((a.yes_bid||50)-50));
+  else if(by==='hot')state.markets.sort((a,b)=>(b.volume_24h||b.volume||0)*Math.abs((b.yes_bid||50)-50)-(a.volume_24h||a.volume||0)*Math.abs((a.yes_bid||50)-50));
+  marketPage=1; // reset to page 1 after sort
   renderMarkets();
 }
 
