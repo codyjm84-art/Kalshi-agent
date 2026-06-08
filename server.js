@@ -557,12 +557,21 @@ function detectSignals(markets) {
   const vols   = markets.map(m => m.volume_24h || 0).filter(v => v > 0);
   const avgVol = vols.length ? vols.reduce((a,b)=>a+b,0)/vols.length : 0;
 
+  // Minimum absolute volume to avoid thinly traded manipulation
+  const MIN_VOL_24H = 500;   // at least 500 contracts traded in 24h
+  const MIN_TOTAL_VOL = 5000; // at least 5000 total contracts ever traded
+  const SPIKE_MULTIPLIER = 5; // must be 5x average (was 3x)
+
   for (const m of markets) {
     const yes    = m.yes_bid || 50;
     const no     = m.no_bid  || 50;
     const vol24  = m.volume_24h || 0;
     const vol    = m.volume    || 0;
     const ticker = m.ticker;
+
+    // Skip thinly traded markets — easily manipulated
+    if (vol < MIN_TOTAL_VOL) continue;
+    if (vol24 < MIN_VOL_24H && vol24 > 0) continue;
 
     // Track price history for momentum detection
     if (!state.priceHistory[ticker]) state.priceHistory[ticker] = [];
@@ -571,12 +580,16 @@ function detectSignals(markets) {
     if (hist.length > 20) hist.shift(); // keep last 20 readings
 
     // ── Signal 1: VOLUME SPIKE ────────────────────────────────────────────────
-    // Market volume is 3x above average — informed trading likely
-    if (vol24 > avgVol * 3 && vol24 > 50 && yes >= state.settings.minOdds && yes <= 75) {
+    // Volume is 5x above average AND on buy side (yes price > 50 means buyers dominate)
+    // We want buying pressure (ask-side volume), not selling (bid-side)
+    // If yes_bid < 50 the market is seller-dominated — skip
+    const buyerDominated = yes >= 45; // buyers are paying at least 45¢ = demand signal
+    if (vol24 > avgVol * SPIKE_MULTIPLIER && vol24 > MIN_VOL_24H && buyerDominated
+        && yes >= state.settings.minOdds && yes <= 75) {
       signals.push({
         ticker, side: 'yes', price: yes,
         type:   'VOLUME_SPIKE',
-        reason: `24h volume ${vol24.toFixed(0)} is ${(vol24/Math.max(avgVol,1)).toFixed(1)}x avg`,
+        reason: `24h vol ${vol24.toFixed(0)} is ${(vol24/Math.max(avgVol,1)).toFixed(1)}x avg · ${vol.toFixed(0)} total`,
         score:  Math.min(100, Math.round((vol24/Math.max(avgVol,1))*20)),
         market: m,
       });
@@ -615,9 +628,9 @@ function detectSignals(markets) {
     }
 
     // ── Signal 3: VALUE PLAY ──────────────────────────────────────────────────
-    // YES price is unusually low (underpriced) with high volume backing it
-    // Suggests market consensus hasn't caught up yet
-    if (yes >= 35 && yes <= 45 && vol24 > avgVol * 1.5) {
+    // YES price is 35-45¢ with strong absolute AND relative volume
+    // Require 2x average AND minimum 1000 contracts to avoid thin market noise
+    if (yes >= 37 && yes <= 45 && vol24 > avgVol * 2.0 && vol24 > 1000 && vol > MIN_TOTAL_VOL) {
       signals.push({
         ticker, side: 'yes', price: yes,
         type:   'VALUE_PLAY',
@@ -824,6 +837,8 @@ async function syncKalshiPositions() {
         }
         broadcast('order', entry);
         console.log('[Settled]', ticker, entry.status.toUpperCase(), pnl !== null ? '$'+pnl.toFixed(2) : '(pending result)');
+        // Update dashboard P&L immediately
+        broadcast('pnl_update', { pnl: state.pnl, balance: state.balance });
       }
     } catch(e) { logError('Settlement check: ' + e.message); }
     const data = await kalFetch('GET', '/portfolio/positions');
@@ -954,7 +969,7 @@ async function agentTick() {
     await loadBalance();
     checkProfitPull();
     await checkStopLosses();
-    await syncKalshiPositions(); // sync externally placed orders
+    await syncKalshiPositions(); // sync externally placed orders (includes settlement check)
     await checkProfitTaking();     // partial profit taking
     runOptimizer();
 
@@ -1368,6 +1383,7 @@ function handle(msg){
   else if(ev==='auto_trade'){if(!state.autoLog)state.autoLog=[];state.autoLog.unshift(d);flash('success','🤖 Auto: '+d.side.toUpperCase()+' '+d.ticker);renderSignals();}
   else if(ev==='orders_sync'){state.orderLog=d;$('bo').textContent=d.length;renderOrders();}
   else if(ev==='flash'){flash(d.type,d.msg);}
+  else if(ev==='pnl_update'){state.pnl=d.pnl;state.balance=d.balance;updateStats();}
   else if(ev==='settings'){state.settings=d;applySettings();}
 }
 
@@ -1383,6 +1399,7 @@ function mergeState(d){
   if(d.signals!==undefined)state.signals=d.signals;
   if(d.autoLog)state.autoLog=d.autoLog;
   if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
+  if(d.pnl!==undefined){state.pnl=d.pnl;updateStats();}
   if(d.settings)state.settings=d.settings;
 }
 
@@ -1768,6 +1785,7 @@ document.addEventListener('DOMContentLoaded', function(){
           state.signals=d.signals;
           state.autoLog=d.autoLog||state.autoLog||[];
           if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
+  if(d.pnl!==undefined){state.pnl=d.pnl;updateStats();}
           renderSignals();
         }
       })
