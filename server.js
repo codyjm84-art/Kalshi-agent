@@ -1320,7 +1320,10 @@ function handle(msg){
 
 function mergeState(d){
   if(!d)return;
+  // Don't overwrite markets if response has empty array — markets loaded separately
+  const prevMarkets = state.markets;
   Object.assign(state,d);
+  if(!d.markets||d.markets.length===0) state.markets = prevMarkets;
   if(d.config)state.config=d.config;
   if(d.model)state.model=d.model;
   if(d.marketsUpdated)state.marketsUpdated=d.marketsUpdated;
