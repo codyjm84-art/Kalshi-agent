@@ -360,10 +360,29 @@ async function checkStopLosses() {
       const slThreshold = order.price * (1 - state.settings.stopLoss);
       console.log(`[SL Check] ${order.ticker} entry:${order.price}¢ cur:${cur}¢ threshold:${slThreshold.toFixed(1)}¢`);
       if (cur <= slThreshold) {
-        // Cancel the order
-        await kalFetch('DELETE', `/portfolio/orders/${order.id}`).catch(() => {});
+        // Sell the position at current market price
+        const sellCount = Math.max(1, Math.floor(order.count || 1));
+        const sellPrice = Math.max(1, cur - 2); // slightly below bid to fill
+        const sellBody = {
+          ticker:          order.ticker,
+          action:          'sell',
+          type:            'limit',
+          side:            order.side,
+          count:           sellCount,
+          yes_price:       order.side === 'yes' ? sellPrice : 100 - sellPrice,
+          expiration_ts:   Math.floor(Date.now() / 1000) + 3600,
+          client_order_id: 'sl-' + Date.now().toString(),
+        };
+        console.log(`[SL] Selling ${order.ticker} — count:${sellCount} price:${sellPrice}¢`);
+        const sellResult = await kalFetch('POST', '/portfolio/orders', sellBody).catch(e => {
+          console.error(`[SL] Sell failed for ${order.ticker}:`, e.message);
+          return null;
+        });
+        if (sellResult) {
+          console.log(`[SL] Sell placed for ${order.ticker}`);
+        }
         order.status = 'stopped';
-        const recovered = +(order.stake * (cur / order.price)).toFixed(2);
+        const recovered = +(sellCount * sellPrice / 100).toFixed(2);
         const lost      = +(order.stake - recovered).toFixed(2);
         state.balance  += recovered;
         state.pnl      -= lost;
