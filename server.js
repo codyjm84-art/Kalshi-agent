@@ -94,6 +94,7 @@ const state = {
   signals:   [],             // detected trade signals
   autoLog:   [],             // auto-trade activity log
   priceHistory: {},          // ticker -> [price, price, ...] for momentum
+  stoppedSet: [],            // persisted stopped tickers
   settings: {
     minOdds:    35,
     stopLoss:   0.30,
@@ -362,6 +363,7 @@ async function checkStopLosses() {
       if (cur === 0) {
         order.status = 'stopped';
         stoppedTickers.add(order.ticker);
+        state.stoppedSet=Array.from(stoppedTickers);
         state.openOrders = state.openOrders.filter(o => o.ticker !== order.ticker);
         console.log(`[SL] ${order.ticker} at 0¢ — settled, skipping`);
         continue;
@@ -389,7 +391,8 @@ async function checkStopLosses() {
           console.log(`[SL] Sell placed for ${order.ticker}`);
         }
         order.status = 'stopped';
-        stoppedTickers.add(order.ticker); // prevent re-sync
+        stoppedTickers.add(order.ticker);
+        state.stoppedSet=Array.from(stoppedTickers); // persist across restarts
         const recovered = +(sellCount * sellPrice / 100).toFixed(2);
         const lost      = +(order.stake - recovered).toFixed(2);
         state.balance  += recovered;
@@ -569,14 +572,14 @@ function detectSignals(markets) {
     const vol    = m.volume    || 0;
     const ticker = m.ticker;
 
-    // Skip thinly traded markets — easily manipulated
-    if (vol < MIN_TOTAL_VOL) continue;
-    if (vol24 < MIN_VOL_24H && vol24 > 0) continue;
-
     // Track price history for momentum detection
     if (!state.priceHistory[ticker]) state.priceHistory[ticker] = [];
     const hist = state.priceHistory[ticker];
     hist.push({ yes, ts: now });
+    // Skip thinly traded markets — easily manipulated
+    if (vol < MIN_TOTAL_VOL) continue;
+    if (vol24 < MIN_VOL_24H && vol24 > 0) continue;
+
     if (hist.length > 20) hist.shift(); // keep last 20 readings
 
     // ── Signal 1: VOLUME SPIKE ────────────────────────────────────────────────
@@ -1034,6 +1037,7 @@ app.post('/api/agent/start', async (req, res) => {
   } catch(e) {
     return res.status(400).json({ error: 'Kalshi auth failed: '+e.message.slice(0,100) });
   }
+  (state.stoppedSet||[]).forEach(t=>stoppedTickers.add(t)); // restore stopped tickers
   state.running = true;
   setStatus('Agent started');
   await loadMarkets();
