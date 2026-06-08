@@ -349,9 +349,16 @@ async function checkStopLosses() {
     try {
       const data = await kalFetch('GET', `/markets/${order.ticker}`);
       const m    = data.market || {};
-      const cur  = order.side === 'yes' ? (m.yes_bid || order.price) : (m.no_bid || order.price);
+      // yes_bid_dollars is 0-1 float, yes_bid is integer cents — handle both
+      const yesBidRaw = m.yes_bid_dollars !== undefined
+        ? Math.round(parseFloat(m.yes_bid_dollars) * 100)
+        : (m.yes_bid || order.price);
+      const noBidRaw  = m.no_bid_dollars !== undefined
+        ? Math.round(parseFloat(m.no_bid_dollars) * 100)
+        : (m.no_bid || order.price);
+      const cur = order.side === 'yes' ? yesBidRaw : noBidRaw;
       const slThreshold = order.price * (1 - state.settings.stopLoss);
-      console.log(`[SL Check] ${order.ticker} entry:${order.price}¢ cur:${cur}¢ threshold:${slThreshold.toFixed(1)}¢ synced:${order.synced}`);
+      console.log(`[SL Check] ${order.ticker} entry:${order.price}¢ cur:${cur}¢ threshold:${slThreshold.toFixed(1)}¢`);
       if (cur <= slThreshold) {
         // Cancel the order
         await kalFetch('DELETE', `/portfolio/orders/${order.id}`).catch(() => {});
@@ -736,7 +743,9 @@ async function syncKalshiPositions() {
         // Fetch settlement pnl from fills
         const side  = o.side || o.outcome_side || 'yes';
         const count = parseFloat(o.fill_count_fp || 1);
-        const price = parseFloat(o.yes_price_dollars || 0.5);
+        const price = count > 0 && parseFloat(o.taker_fill_cost_dollars) > 0
+          ? parseFloat(o.taker_fill_cost_dollars) / count  // actual avg fill price
+          : parseFloat(o.yes_price_dollars || 0.5);
         const cost  = parseFloat(o.taker_fill_cost_dollars || count * price);
         const fees  = parseFloat(o.taker_fees_dollars || 0);
 
@@ -842,8 +851,8 @@ async function syncKalshiPositions() {
 
       const side    = o.side || o.outcome_side || 'yes';
       const count   = parseFloat(o.fill_count_fp || 1);
-      const price   = parseFloat(o.yes_price_dollars || o.no_price_dollars || 0.5);
-      const stake   = parseFloat(o.taker_fill_cost_dollars || count * price);
+      const stake   = parseFloat(o.taker_fill_cost_dollars || 0);
+      const price   = count > 0 && stake > 0 ? stake / count : parseFloat(o.yes_price_dollars || 0.5);
       const fees    = parseFloat(o.taker_fees_dollars || 0);
 
       // Check if market is still active
