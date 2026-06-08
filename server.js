@@ -883,6 +883,9 @@ async function syncKalshiPositions() {
     // market_positions is an object keyed by ticker — extract values
     const mp = Object.values(data.market_positions || {});
     const positions = mp; // use market_positions — has ticker + position_fp fields
+    const totalKalshiExposure = mp.reduce((s,p)=>s+parseFloat(p.market_exposure_dollars||0),0);
+    console.log('[Positions] count:', mp.length, 'total_exposure: $'+totalKalshiExposure.toFixed(2));
+    mp.forEach(p=>console.log('[Pos]', p.ticker, 'contracts:', p.position_fp, 'exposure: $'+p.market_exposure_dollars, 'cost: $'+p.total_traded_dollars));
     for (const pos of positions) {
       const ticker = pos.ticker || pos.market_ticker;
       if (!ticker) continue;
