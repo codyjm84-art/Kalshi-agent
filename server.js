@@ -252,8 +252,36 @@ async function loadMarkets() {
         }
         if (added > 0) {
           const sample = markets.filter(m=>m.close_time).sort((a,b)=>new Date(a.close_time)-new Date(b.close_time)).slice(0,5);
-          console.log('[Markets] added', added, 'near-term markets (<30d). Soonest:', sample.map(m=>m.ticker+'('+m.close_time?.slice(0,10)+')').join(', '));
+          console.log('[Markets] added', added, 'near-term markets. Soonest:', sample.map(m=>m.ticker+'('+m.close_time?.slice(0,10)+')').join(', '));
         }
+
+      // Fetch live daily series markets (MLB, NBA, BTC, etc.)
+      const LIVE_SERIES = ['KXMLB', 'KXNBA', 'KXNFL', 'KXNHL', 'KXBTCD', 'KXETHD', 'KXSOLD', 'KXSPX', 'KXNASDAQ'];
+      for (const series of LIVE_SERIES) {
+        try {
+          const sr = await kalFetch('GET', '/series/'+series+'/markets?limit=50&status=open');
+          const sMarkets = sr.markets || [];
+          let seriesAdded = 0;
+          for (const m of sMarkets) {
+            if (markets.find(x => x.ticker === m.ticker)) continue;
+            const yes = m.yes_bid_dollars ? Math.round(parseFloat(m.yes_bid_dollars)*100) : 50;
+            if (yes < state.settings.minOdds || yes > 100 - state.settings.minOdds) continue;
+            markets.push({
+              ticker:     m.ticker,
+              title:      m.yes_sub_title || m.title || m.ticker,
+              yes_bid:    yes,
+              no_bid:     100 - yes,
+              volume:     parseFloat(m.volume_fp || 0),
+              volume_24h: parseFloat(m.volume_24h_fp || 0),
+              category:   series.includes('MLB')||series.includes('NBA')||series.includes('NFL')||series.includes('NHL') ? 'sports' : 'crypto',
+              close_time: m.close_time || null,
+              open_interest: parseFloat(m.open_interest_fp || 0),
+            });
+            seriesAdded++;
+          }
+          if (seriesAdded > 0) console.log('[Series]', series, 'added', seriesAdded, 'markets');
+        } catch(e3) { /* series may not exist */ }
+      }
       } catch(e2) { /* silent */ }
 
       setStatus(`${markets.length} markets loaded`);
