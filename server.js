@@ -568,17 +568,34 @@ function detectSignals(markets) {
   const MIN_TOTAL_VOL = 5000; // at least 5000 total contracts ever traded
   const SPIKE_MULTIPLIER = 5; // must be 5x average (was 3x)
 
+  const MAX_DAYS_TO_SETTLE = 14;
+  const now14 = Date.now();
+  const MAX_CLOSE_MS = now14 + MAX_DAYS_TO_SETTLE * 86400000;
+  const nearTermMarkets = markets.filter(m => {
+    if (!m.close_time) return false;
+    const ct = new Date(m.close_time).getTime();
+    return ct > now14 && ct <= MAX_CLOSE_MS;
+  });
+  console.log('[Signals] scanning near-term (<14d):', nearTermMarkets.length, 'of', markets.length, 'markets');
+
+  // Build full price history for all markets
   for (const m of markets) {
+    const t=m.ticker;
+    if(!state.priceHistory[t])state.priceHistory[t]=[];
+    const h=state.priceHistory[t];
+    h.push({yes:m.yes_bid||50,ts:now14});
+    if(h.length>20)h.shift();
+  }
+
+  for (const m of nearTermMarkets) {
     const yes    = m.yes_bid || 50;
     const no     = m.no_bid  || 50;
     const vol24  = m.volume_24h || 0;
     const vol    = m.volume    || 0;
     const ticker = m.ticker;
 
-    // Track price history for momentum detection
-    if (!state.priceHistory[ticker]) state.priceHistory[ticker] = [];
-    const hist = state.priceHistory[ticker];
-    hist.push({ yes, ts: now });
+    // Price history tracked above for all markets
+    const hist = state.priceHistory[ticker] || [];
     // Skip thinly traded markets — easily manipulated
     if (vol < MIN_TOTAL_VOL) continue;
     if (vol24 < MIN_VOL_24H && vol24 > 0) continue;
