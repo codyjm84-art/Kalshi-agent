@@ -382,6 +382,7 @@ async function checkStopLosses() {
           console.log(`[SL] Sell placed for ${order.ticker}`);
         }
         order.status = 'stopped';
+        stoppedTickers.add(order.ticker); // prevent re-sync
         const recovered = +(sellCount * sellPrice / 100).toFixed(2);
         const lost      = +(order.stake - recovered).toFixed(2);
         state.balance  += recovered;
@@ -659,6 +660,7 @@ function detectSignals(markets) {
 
 // Track recently failed tickers to avoid retry loops
 const failedTickers = new Map(); // ticker -> timestamp
+const stoppedTickers = new Set(); // tickers where stop loss already fired
 let lastAutoTrade = 0; // timestamp of last auto-trade
 const seenSignals = new Set(); // signals seen before auto-trade enabled — skip these
 
@@ -827,9 +829,9 @@ async function syncKalshiPositions() {
       const contracts = parseFloat(pos.position_fp || 0);
       if (contracts === 0) continue;
       const alreadyTracked = state.openOrders.find(o => o.ticker === ticker);
-      // Skip if already marked as settled/won/lost in orderLog
-      const isSettled = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'||l.status==='settled'));
-      if (!alreadyTracked && !isSettled) {
+      // Skip if already marked as settled/won/lost in orderLog or stop loss fired
+      const isSettled = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'||l.status==='settled'||l.status==='stopped'));
+      if (!alreadyTracked && !isSettled && !stoppedTickers.has(ticker)) {
         const stake    = parseFloat(pos.total_traded_dollars || pos.market_exposure_dollars || 0);
         const count    = Math.abs(contracts);
         const price    = count > 0 ? Math.round((stake / count) * 100) : 50;
@@ -864,9 +866,9 @@ async function syncKalshiPositions() {
       // Skip if already tracked (including settled orders)
       const alreadyTracked = state.orderLog.find(l => l.id === o.order_id);
       if (alreadyTracked) continue;
-      // Skip if already marked as won/lost from settlement check
-      const settledEntry = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'));
-      if (settledEntry) continue;
+      // Skip if already marked as won/lost/stopped
+      const settledEntry = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'||l.status==='stopped'));
+      if (settledEntry || stoppedTickers.has(ticker)) continue;
 
       const side    = o.side || o.outcome_side || 'yes';
       const count   = parseFloat(o.fill_count_fp || 1);
