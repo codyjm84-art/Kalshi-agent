@@ -229,7 +229,7 @@ async function loadMarkets() {
       // Also fetch near-term markets (sports, daily crypto) separately
       // These don't appear well in the events API
       try {
-        const nearRes = await kalFetch('GET', '/markets?limit=200&status=open&min_close_ts='+Math.floor(Date.now()/1000)+'&max_close_ts='+Math.floor((Date.now()+30*86400000)/1000));
+        const nearRes = await kalFetch('GET', '/markets?limit=1000&status=open&min_close_ts='+Math.floor(Date.now()/1000)+'&max_close_ts='+Math.floor((Date.now()+90*86400000)/1000));
         const nearRaw = nearRes.markets || [];
         let added = 0;
         for (const m of nearRaw) {
@@ -250,7 +250,10 @@ async function loadMarkets() {
           });
           added++;
         }
-        if (added > 0) console.log('[Markets] added', added, 'near-term markets (<30d)');
+        if (added > 0) {
+          const sample = markets.filter(m=>m.close_time).sort((a,b)=>new Date(a.close_time)-new Date(b.close_time)).slice(0,5);
+          console.log('[Markets] added', added, 'near-term markets (<30d). Soonest:', sample.map(m=>m.ticker+'('+m.close_time?.slice(0,10)+')').join(', '));
+        }
       } catch(e2) { /* silent */ }
 
       setStatus(`${markets.length} markets loaded`);
