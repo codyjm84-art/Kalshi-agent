@@ -1228,6 +1228,7 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
 
 <div class="statbar">
   <div class="stat"><div class="sl">Balance</div><div class="sv" id="s-bal" style="color:#fff">$0.00</div></div>
+  <div class="stat"><div class="sl">Portfolio</div><div class="sv" id="s-port" style="color:#00e5a0">$0.00</div></div>
   <div class="stat"><div class="sl">Target</div><div class="sv" id="s-target" style="color:#4a9eff">$78.00</div></div>
   <div class="stat"><div class="sl">P&L</div><div class="sv" id="s-pnl" style="color:#888">$0.00</div></div>
   <div class="stat"><div class="sl">Orders</div><div class="sv" id="s-ord" style="color:#4a9eff">0</div></div>
@@ -1377,7 +1378,7 @@ const PAGE_SIZE = 50;
 let searchQuery = '';
 
 let state = {
-  running:false, balance:0, pnl:0, secured:0, slHits:0,
+  running:false, balance:0, pnl:0, secured:0, slHits:0, positionValue:0,
   markets:[], orderLog:[], errors:[],
   signals:[], autoLog:[], autoTrade:false,
   config:{hasKeys:false}
@@ -1436,6 +1437,8 @@ function mergeState(d){
   if(d.signals!==undefined)state.signals=d.signals;
   if(d.autoLog)state.autoLog=d.autoLog;
   if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
+  if(d.positionValue!==undefined)state.positionValue=d.positionValue;
+  if(d.portfolioValue!==undefined)state.portfolioValue=d.portfolioValue;
   if(d.pnl!==undefined){state.pnl=d.pnl;updateStats();}
   if(d.settings)state.settings=d.settings;
 }
@@ -1458,6 +1461,8 @@ function updateStats(){
   const bal=state.balance||0,pt=state.settings?.pullTarget||78;
   const pct=Math.min(100,(bal/pt)*100);
   $('s-bal').textContent='$'+bal.toFixed(2);
+  const portVal=(state.balance||0)+(state.positionValue||0);
+  const portEl=$('s-port');if(portEl)portEl.textContent='$'+portVal.toFixed(2);
   $('s-pnl').textContent=(state.pnl>=0?'+':'')+' $'+Math.abs(state.pnl||0).toFixed(2);
   $('s-pnl').style.color=(state.pnl||0)>=0?'#00e5a0':'#ff4455';
   $('s-ord').textContent=(state.orderLog||[]).filter(o=>o.status==='open').length;
@@ -1652,6 +1657,7 @@ function renderOrders(){
       +pnlStr+'</div>'
       +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+displayTitle+'</div>'
       +'<div style="font-size:9px;color:#444870">'+o.price+'¢ · '+Number(o.count||0).toFixed(2)+' contracts · '+new Date(o.ts).toLocaleTimeString()+(o.synced?' · synced':'')+'</div>'
+      +(isOpen?(()=>{const mkt2=state.markets.find(m=>m.ticker===o.ticker);const cp=mkt2?(o.side==='yes'?mkt2.yes_bid:mkt2.no_bid):null;if(!cp)return '';const cv=(cp/100)*(o.count||1);const ev=(o.price/100)*(o.count||1);const up=+(cv-ev).toFixed(2);return '<div style="font-size:10px;margin-top:3px;color:'+(up>=0?'#00e5a0':'#ff4455')+'">Unrealized: '+(up>=0?'+':'')+up+' · now: '+cp+'¢</div>';})():'')
       +'</div>';
   }).join(''):'<div class="empty">NO ORDERS YET</div>';
 }
@@ -1822,6 +1828,8 @@ document.addEventListener('DOMContentLoaded', function(){
           state.signals=d.signals;
           state.autoLog=d.autoLog||state.autoLog||[];
           if(d.autoTrade!==undefined)state.autoTrade=d.autoTrade;
+  if(d.positionValue!==undefined)state.positionValue=d.positionValue;
+  if(d.portfolioValue!==undefined)state.portfolioValue=d.portfolioValue;
   if(d.pnl!==undefined){state.pnl=d.pnl;updateStats();}
           renderSignals();
         }
