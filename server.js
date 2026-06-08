@@ -858,7 +858,8 @@ async function syncKalshiPositions() {
       const alreadyTracked = state.openOrders.find(o => o.ticker === ticker);
       // Skip if already marked as settled/won/lost in orderLog or stop loss fired
       const isSettled = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'||l.status==='settled'||l.status==='stopped'));
-      if (!alreadyTracked && !isSettled && !stoppedTickers.has(ticker)) {
+      const isActiveMarket = state.markets.length===0 || state.markets.find(m=>m.ticker===ticker);
+      if (!alreadyTracked && !isSettled && !stoppedTickers.has(ticker) && isActiveMarket) {
         const stake    = parseFloat(pos.total_traded_dollars || pos.market_exposure_dollars || 0);
         const count    = Math.abs(contracts);
         const price    = count > 0 ? Math.round((stake / count) * 100) : 50;
@@ -895,7 +896,8 @@ async function syncKalshiPositions() {
       if (alreadyTracked) continue;
       // Skip if already marked as won/lost/stopped
       const settledEntry = state.orderLog.find(l => l.ticker === ticker && (l.status==='won'||l.status==='lost'||l.status==='stopped'));
-      if (settledEntry || stoppedTickers.has(ticker)) continue;
+      const mktActive = state.markets.length===0 || state.markets.find(m=>m.ticker===ticker);
+      if (settledEntry || stoppedTickers.has(ticker) || !mktActive) continue;
 
       const side    = o.side || o.outcome_side || 'yes';
       const count   = parseFloat(o.fill_count_fp || 1);
