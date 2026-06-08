@@ -359,6 +359,13 @@ async function checkStopLosses() {
       const cur = order.side === 'yes' ? yesBidRaw : noBidRaw;
       const slThreshold = order.price * (1 - state.settings.stopLoss);
       console.log(`[SL Check] ${order.ticker} entry:${order.price}¢ cur:${cur}¢ threshold:${slThreshold.toFixed(1)}¢`);
+      if (cur === 0) {
+        order.status = 'stopped';
+        stoppedTickers.add(order.ticker);
+        state.openOrders = state.openOrders.filter(o => o.ticker !== order.ticker);
+        console.log(`[SL] ${order.ticker} at 0¢ — settled, skipping`);
+        continue;
+      }
       if (cur <= slThreshold) {
         // Sell the position at current market price
         const sellCount = Math.max(1, Math.floor(order.count || 1));
@@ -754,6 +761,8 @@ async function syncKalshiPositions() {
       for (const o of allExec) {
         const ticker = o.ticker;
         if (!ticker) continue;
+        if (o.action === 'sell') continue; // skip sell orders — track buys only
+        if (stoppedTickers.has(ticker)) continue; // skip stopped positions
         const isActive = activeTickers.has(ticker);
         if (isActive) continue; // still open — skip
 
