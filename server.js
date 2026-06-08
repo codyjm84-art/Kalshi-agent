@@ -884,6 +884,7 @@ async function syncKalshiPositions() {
     const mp = Object.values(data.market_positions || {});
     const positions = mp; // use market_positions — has ticker + position_fp fields
     const posExposure = mp.reduce((s,p)=>s+parseFloat(p.market_exposure_dollars||0),0);
+    state.positionValue = +posExposure.toFixed(2); // set directly from Kalshi
     console.log('[Positions] count:', mp.length, 'total_exposure: $'+posExposure.toFixed(2), 'cash: $'+(state.balance||0).toFixed(2), 'portfolio: $'+((state.balance||0)+posExposure).toFixed(2));
     // Detect settled positions: contracts=0, cost>0, exposure=0 = LOST
     for (const p of mp) {
@@ -1035,10 +1036,8 @@ async function syncKalshiPositions() {
   } catch(e) { /* silent — positions sync is best-effort */ }
 
   // Update positionValue from Kalshi's market_exposure_dollars
-  // Use Kalshi's exact exposure total
-  const totalKalshiExposure = state.openOrders.filter(o=>o.status==='open'&&o.marketValue).reduce((s,o)=>s+(o.marketValue||0),0);
-  if(totalKalshiExposure>0){
-    state.positionValue=+totalKalshiExposure.toFixed(2);
+  // Broadcast updated position value (already set from posExposure above)
+  if(state.positionValue>0){
     broadcast('pnl_update',{pnl:state.pnl,balance:state.balance,positionValue:state.positionValue});
     console.log('[Portfolio] position value: $'+state.positionValue.toFixed(2)+' cash: $'+state.balance.toFixed(2)+' total: $'+(state.balance+state.positionValue).toFixed(2));
   }
