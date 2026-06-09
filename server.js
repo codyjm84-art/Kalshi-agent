@@ -256,7 +256,23 @@ async function loadMarkets() {
         }
 
       // Fetch live daily series markets (MLB, NBA, BTC, etc.)
-      const LIVE_SERIES = ['KXMLB', 'KXNBA', 'KXNFL', 'KXNHL', 'KXBTCD', 'KXETHD', 'KXSOLD', 'KXSPX', 'KXNASDAQ'];
+      // Kalshi series tickers — sports use game-specific formats
+      const LIVE_SERIES = [
+        'KXNHL',       // NHL hockey
+        'KXBTCD',      // BTC daily price
+        'KXETHD',      // ETH daily price
+        'KXSOLD',      // SOL daily price
+        'KXBNBD',      // BNB daily
+        'KXNBASPREAD', // NBA game spreads
+        'KXNBAML',     // NBA moneyline
+        'KXMLBML',     // MLB moneyline
+        'KXMLBSPREAD', // MLB spreads
+        'KXNFLML',     // NFL moneyline
+        'KXNFLSPREAD', // NFL spreads
+        'KXSPX500',    // S&P 500
+        'KXNDX',       // Nasdaq
+        'KXHIGHNY',    // NYC temperature daily
+      ];
       for (const series of LIVE_SERIES) {
         try {
           const sr = await kalFetch('GET', '/markets?limit=100&status=open&series_ticker='+series);
