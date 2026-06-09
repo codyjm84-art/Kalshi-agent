@@ -259,7 +259,7 @@ async function loadMarkets() {
       const LIVE_SERIES = ['KXMLB', 'KXNBA', 'KXNFL', 'KXNHL', 'KXBTCD', 'KXETHD', 'KXSOLD', 'KXSPX', 'KXNASDAQ'];
       for (const series of LIVE_SERIES) {
         try {
-          const sr = await kalFetch('GET', '/series/'+series+'/markets?limit=50&status=open');
+          const sr = await kalFetch('GET', '/markets?limit=100&status=open&series_ticker='+series);
           const sMarkets = sr.markets || [];
           let seriesAdded = 0;
           for (const m of sMarkets) {
