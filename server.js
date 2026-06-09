@@ -105,7 +105,7 @@ const state = {
   },
   model: {
     maxOpen:      10,
-    copyPct:      0.02,
+    copyPct:      0.10,
     successRate:  null,
     estMins:      null,
     optimizing:   false,
@@ -582,10 +582,10 @@ function runOptimizer() {
 
   const COMBOS = [];
   for (const maxOpen of [3, 5, 8, 10, 12, 15, 20])
-    for (const copyPct of [0.01, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05])
+    for (const copyPct of [0.05, 0.07, 0.08, 0.09, 0.10, 0.12, 0.15])
       COMBOS.push({ maxOpen, copyPct });
 
-  let best = { maxOpen: 10, copyPct: 0.02, score: -Infinity, successRate: 0, estMins: 999 };
+  let best = { maxOpen: 10, copyPct: 0.10, score: -Infinity, successRate: 0, estMins: 999 };
 
   for (const { maxOpen, copyPct } of COMBOS) {
     let successes = 0, totalSettled = 0;
@@ -652,8 +652,13 @@ function detectSignals(markets) {
   // SIGNAL FILTER: only non-sports markets closing within 7 days
   // Sports (KXNHL, KXNBA, KXMLB etc) are excluded — live games too noisy
   // Spreads already excluded from volume/value signals
-  const SPORTS_PREFIXES = ['KXNHL','KXNBA','KXMLB','KXNFL','KXNBASPREAD','KXMLBSPREAD','KXNFLSPREAD','KXNBAML','KXMLBML','KXNFLML'];
-  const isSportsTicker = t => SPORTS_PREFIXES.some(p => t.startsWith(p));
+  const EXCLUDED_PREFIXES = [
+    // Sports
+    'KXNHL','KXNBA','KXMLB','KXNFL','KXNBASPREAD','KXMLBSPREAD','KXNFLSPREAD','KXNBAML','KXMLBML','KXNFLML',
+    // Crypto
+    'KXBTC','KXETH','KXSOL','KXBNB','KXDOGE','KXXRP','KXADA','KXAVAX','KXMATIC','KXLINK',
+  ];
+  const isSportsTicker = t => EXCLUDED_PREFIXES.some(p => t.startsWith(p));
 
   const nearTermMarkets = markets.filter(m => {
     if (isSportsTicker(m.ticker)) return false; // exclude live sports
