@@ -662,8 +662,8 @@ function detectSignals(markets) {
     const t=m.ticker;
     if(!state.priceHistory[t])state.priceHistory[t]=[];
     const h=state.priceHistory[t];
-    h.push({yes:m.yes_bid||50,ts:now14});
-    if(h.length>20)h.shift();
+    h.push({yes:m.yes_bid||50,oi:m.open_interest||0,ts:now14});
+    if(h.length>60)h.shift(); // 60 × 30s = 30min window
   }
 
   for (const m of nearTermMarkets) {
@@ -697,35 +697,53 @@ function detectSignals(markets) {
       });
     }
 
-    // ── Signal 2: PRICE MOMENTUM ──────────────────────────────────────────────
-    // Price moved 5+ cents in same direction over last 5 readings
-    if (hist.length >= 5) {
-      const recent  = hist.slice(-5).map(h => h.yes);
-      const oldest  = recent[0];
-      const newest  = recent[recent.length-1];
-      const moved   = newest - oldest;
-      const allUp   = recent.every((v,i) => i===0 || v >= recent[i-1]);
-      const allDown = recent.every((v,i) => i===0 || v <= recent[i-1]);
+    // ── Signal 2: SHORT-WINDOW DIRECTIONAL PRESSURE ──────────────────────────────
+    // Multi-window price velocity as proxy for directional volume
+    // 30s ticks: 10=5min, 30=15min, 60=30min
+    if (hist.length >= 10) {
+      const win5  = hist.slice(-10).map(h => h.yes);
+      const win15 = hist.length >= 30 ? hist.slice(-30).map(h => h.yes) : win5;
+      const win30 = hist.length >= 60 ? hist.slice(-60).map(h => h.yes) : win15;
+      const move5m  = win5[win5.length-1]   - win5[0];
+      const move15m = win15[win15.length-1] - win15[0];
+      const move30m = win30[win30.length-1] - win30[0];
+      // Open interest direction — rising OI = net new buying
+      const oiRecent = hist.slice(-10).map(h => h.oi||0);
+      const oiChange = oiRecent[oiRecent.length-1] - oiRecent[0];
 
-      // Strong upward momentum on YES — price rising consistently
-      if (moved >= 5 && allUp && newest >= state.settings.minOdds && newest <= 70) {
+      // BUY pressure: price up across multiple windows + rising open interest
+      if (move5m >= 3 && move15m >= 5 && oiChange >= 0 && yes >= state.settings.minOdds && yes <= 72) {
         signals.push({
-          ticker, side: 'yes', price: newest,
+          ticker, side: 'yes', price: yes,
           type:   'MOMENTUM_UP',
-          reason: `YES price rose ${moved}¢ consistently (${oldest}¢ → ${newest}¢)`,
-          score:  Math.min(100, moved * 8),
+          reason: `BUY: +${move5m}¢/5m +${move15m}¢/15m +${move30m}¢/30m OI:${oiChange>=0?'+':''}${oiChange.toFixed(0)}`,
+          score:  Math.min(100, (move5m*2 + move15m) * 5),
           market: m,
         });
       }
-      // Strong downward momentum on YES — NO side gaining value
-      if (moved <= -5 && allDown && no >= state.settings.minOdds && no <= 70) {
+      // SELL pressure: price falling across windows
+      if (move5m <= -3 && move15m <= -5 && no >= state.settings.minOdds && no <= 72) {
         signals.push({
           ticker, side: 'no', price: no,
           type:   'MOMENTUM_DOWN',
-          reason: `NO value rising — YES fell ${Math.abs(moved)}¢ consistently`,
-          score:  Math.min(100, Math.abs(moved) * 8),
+          reason: `SELL: ${move5m}¢/5m ${move15m}¢/15m ${move30m}¢/30m OI:${oiChange>=0?'+':''}${oiChange.toFixed(0)}`,
+          score:  Math.min(100, (Math.abs(move5m)*2 + Math.abs(move15m)) * 5),
           market: m,
         });
+      }
+      // ACCELERATION: moving faster in last 5min than previous trend
+      if (Math.abs(move5m) >= 4 && Math.abs(move5m) > Math.abs(move15m) * 0.4) {
+        const dir = move5m > 0 ? 'yes' : 'no';
+        const dp  = dir === 'yes' ? yes : no;
+        if (dp >= state.settings.minOdds && dp <= 72) {
+          signals.push({
+            ticker, side: dir, price: dp,
+            type:   'MOMENTUM_UP',
+            reason: `ACCEL: ${move5m>0?'+':''}${move5m}¢/5m vs ${move15m>0?'+':''}${move15m}¢/15m`,
+            score:  Math.min(100, Math.abs(move5m) * 10),
+            market: m,
+          });
+        }
       }
     }
 
