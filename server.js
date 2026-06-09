@@ -633,8 +633,8 @@ function detectSignals(markets) {
   const signals = [];
   const now = Date.now();
 
-  // Compute averages across all markets for comparison
-  const vols   = markets.map(m => m.volume_24h || 0).filter(v => v > 0);
+  // Compute avgVol excluding spread markets — they skew the baseline massively
+  const vols   = markets.filter(m=>!m.ticker.includes('SPREAD')).map(m => m.volume_24h || 0).filter(v => v > 0);
   const avgVol = vols.length ? vols.reduce((a,b)=>a+b,0)/vols.length : 0;
 
   // Minimum absolute volume to avoid thinly traded manipulation
@@ -642,20 +642,27 @@ function detectSignals(markets) {
   const MIN_TOTAL_VOL = 5000; // at least 5000 total contracts ever traded
   const SPIKE_MULTIPLIER = 3; // 3x average
 
-  const MAX_DAYS_TO_SETTLE = 90; // expanded from 14 — most markets lack close_time
   const now14 = Date.now();
-  const MAX_CLOSE_MS = now14 + MAX_DAYS_TO_SETTLE * 86400000;
 
-  // Debug close_time distribution
-  const withClose = markets.filter(m=>m.close_time).length;
+  // Count for logging
+  const within7  = markets.filter(m=>{if(!m.close_time)return false;const ct=new Date(m.close_time).getTime();return ct>now14&&ct<=now14+7*86400000;}).length;
   const within14 = markets.filter(m=>{if(!m.close_time)return false;const ct=new Date(m.close_time).getTime();return ct>now14&&ct<=now14+14*86400000;}).length;
-  const within90 = markets.filter(m=>{if(!m.close_time)return false;const ct=new Date(m.close_time).getTime();return ct>now14&&ct<=MAX_CLOSE_MS;}).length;
-  console.log('[Signals] close_time coverage:', withClose, 'of', markets.length, '| <14d:', within14, '| <90d:', within90);
+  const within90 = markets.filter(m=>{if(!m.close_time)return false;const ct=new Date(m.close_time).getTime();return ct>now14&&ct<=now14+90*86400000;}).length;
 
-  // Scan all markets but apply near-term score multiplier
-  // With only 61 markets closing <90d, filtering would miss too many opportunities
-  const nearTermMarkets = markets; // scan all, score boost handles prioritization
-  console.log('[Signals] scanning:', nearTermMarkets.length, 'markets | <14d:', within14, '| <90d:', within90);
+  // SIGNAL FILTER: only non-sports markets closing within 7 days
+  // Sports (KXNHL, KXNBA, KXMLB etc) are excluded — live games too noisy
+  // Spreads already excluded from volume/value signals
+  const SPORTS_PREFIXES = ['KXNHL','KXNBA','KXMLB','KXNFL','KXNBASPREAD','KXMLBSPREAD','KXNFLSPREAD','KXNBAML','KXMLBML','KXNFLML'];
+  const isSportsTicker = t => SPORTS_PREFIXES.some(p => t.startsWith(p));
+
+  const nearTermMarkets = markets.filter(m => {
+    if (isSportsTicker(m.ticker)) return false; // exclude live sports
+    if (!m.close_time) return false;
+    const ct = new Date(m.close_time).getTime();
+    return ct > now14 && ct <= now14 + 7 * 86400000; // closes within 7 days
+  });
+
+  console.log('[Signals] <7d non-sports:', nearTermMarkets.length, '| <14d:', within14, '| <90d:', within90);
 
   // Build full price history for all markets
   for (const m of markets) {
