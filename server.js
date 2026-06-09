@@ -640,7 +640,7 @@ function detectSignals(markets) {
   // Minimum absolute volume to avoid thinly traded manipulation
   const MIN_VOL_24H = 500;   // at least 500 contracts traded in 24h
   const MIN_TOTAL_VOL = 5000; // at least 5000 total contracts ever traded
-  const SPIKE_MULTIPLIER = 5; // must be 5x average (was 3x)
+  const SPIKE_MULTIPLIER = 3; // 3x average
 
   const MAX_DAYS_TO_SETTLE = 90; // expanded from 14 — most markets lack close_time
   const now14 = Date.now();
@@ -681,20 +681,33 @@ function detectSignals(markets) {
 
     if (hist.length > 20) hist.shift(); // keep last 20 readings
 
-    // ── Signal 1: VOLUME SPIKE ────────────────────────────────────────────────
-    // Volume is 5x above average AND on buy side (yes price > 50 means buyers dominate)
-    // We want buying pressure (ask-side volume), not selling (bid-side)
-    // If yes_bid < 50 the market is seller-dominated — skip
-    const buyerDominated = yes >= 45; // buyers are paying at least 45¢ = demand signal
-    if (vol24 > avgVol * SPIKE_MULTIPLIER && vol24 > MIN_VOL_24H && buyerDominated
-        && yes >= state.settings.minOdds && yes <= 75) {
-      signals.push({
-        ticker, side: 'yes', price: yes,
-        type:   'VOLUME_SPIKE',
-        reason: `24h vol ${vol24.toFixed(0)} is ${(vol24/Math.max(avgVol,1)).toFixed(1)}x avg · ${vol.toFixed(0)} total`,
-        score:  Math.min(100, Math.round((vol24/Math.max(avgVol,1))*20)),
-        market: m,
-      });
+    // ── Signal 1: DIRECTIONAL VOLUME SPIKE ──────────────────────────────────────
+    // YES spike: high volume + price above 50 = buyers dominating
+    // NO spike:  high volume + price below 50 = sellers dominating (NO buyers)
+    const spikeRatio = vol24 / Math.max(avgVol, 1);
+    if (vol24 > avgVol * SPIKE_MULTIPLIER && vol24 > MIN_VOL_24H) {
+
+      // YES-SIDE spike: price >= 50 means YES buyers are driving volume
+      if (yes >= 50 && yes >= state.settings.minOdds && yes <= 80) {
+        signals.push({
+          ticker, side: 'yes', price: yes,
+          type:   'VOLUME_SPIKE',
+          reason: `YES spike: ${vol24.toFixed(0)} vol (${spikeRatio.toFixed(1)}x avg) · price ${yes}¢ — buyer dominated`,
+          score:  Math.min(100, Math.round(spikeRatio * 20)),
+          market: m,
+        });
+      }
+
+      // NO-SIDE spike: price < 50 means NO buyers pushing YES price down
+      if (yes < 50 && no >= state.settings.minOdds && no <= 80) {
+        signals.push({
+          ticker, side: 'no', price: no,
+          type:   'VOLUME_SPIKE',
+          reason: `NO spike: ${vol24.toFixed(0)} vol (${spikeRatio.toFixed(1)}x avg) · YES at ${yes}¢ — seller dominated`,
+          score:  Math.min(100, Math.round(spikeRatio * 20)),
+          market: m,
+        });
+      }
     }
 
     // ── Signal 2: SHORT-WINDOW DIRECTIONAL PRESSURE ──────────────────────────────
