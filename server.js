@@ -659,10 +659,10 @@ function detectSignals(markets) {
     if (isSportsTicker(m.ticker)) return false; // exclude live sports
     if (!m.close_time) return false;
     const ct = new Date(m.close_time).getTime();
-    return ct > now14 && ct <= now14 + 7 * 86400000; // closes within 7 days
+    return ct > now14 && ct <= now14 + 14 * 86400000; // closes within 14 days
   });
 
-  console.log('[Signals] <7d non-sports:', nearTermMarkets.length, '| <14d:', within14, '| <90d:', within90);
+  console.log('[Signals] <14d non-sports:', nearTermMarkets.length, '| <14d:', within14, '| <90d:', within90);
 
   // Build full price history for all markets
   for (const m of markets) {
