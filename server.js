@@ -685,7 +685,9 @@ function detectSignals(markets) {
     // YES spike: high volume + price above 50 = buyers dominating
     // NO spike:  high volume + price below 50 = sellers dominating (NO buyers)
     const spikeRatio = vol24 / Math.max(avgVol, 1);
-    if (vol24 > avgVol * SPIKE_MULTIPLIER && vol24 > MIN_VOL_24H) {
+    // Skip spread markets for volume spikes — their volume is always high by design
+    const isSpreadMkt = ticker.includes('SPREAD');
+    if (!isSpreadMkt && vol24 > avgVol * SPIKE_MULTIPLIER && vol24 > MIN_VOL_24H) {
 
       // YES-SIDE spike: price >= 50 means YES buyers are driving volume
       if (yes >= 50 && yes >= state.settings.minOdds && yes <= 80) {
@@ -729,7 +731,7 @@ function detectSignals(markets) {
         signals.push({
           ticker, side: 'yes', price: yes,
           type:   'MOMENTUM_UP',
-          reason: `BUY: +${move5m}¢/5m +${move15m}¢/15m +${move30m}¢/30m OI:${oiChange>=0?'+':''}${oiChange.toFixed(0)}`,
+          reason: `BUY: +${move5m}¢/5m +${move15m}¢/15m +${move30m}¢/30m OI:${oiChange>=0?'+':''}${oiChange.toFixed(0)}${ticker.includes('SPREAD')?' [SPREAD]':''}`,
           score:  Math.min(100, (move5m*2 + move15m) * 5),
           market: m,
         });
@@ -761,9 +763,10 @@ function detectSignals(markets) {
     }
 
     // ── Signal 3: VALUE PLAY ──────────────────────────────────────────────────
-    // YES price is 35-45¢ with strong absolute AND relative volume
-    // Require 2x average AND minimum 1000 contracts to avoid thin market noise
-    if (yes >= 37 && yes <= 45 && vol24 > avgVol * 2.0 && vol24 > 1000 && vol > MIN_TOTAL_VOL) {
+    // YES price is 35-45¢ with strong volume — genuinely underpriced market
+    // Exclude spread markets (naturally priced near 50¢ by design)
+    const isSpread = ticker.includes('SPREAD') || ticker.includes('SPRد');
+    if (!isSpread && yes >= 37 && yes <= 45 && vol24 > avgVol * 2.0 && vol24 > 1000 && vol > MIN_TOTAL_VOL) {
       signals.push({
         ticker, side: 'yes', price: yes,
         type:   'VALUE_PLAY',
