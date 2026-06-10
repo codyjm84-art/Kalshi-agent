@@ -653,10 +653,8 @@ function detectSignals(markets) {
   // Sports (KXNHL, KXNBA, KXMLB etc) are excluded — live games too noisy
   // Spreads already excluded from volume/value signals
   const EXCLUDED_PREFIXES = [
-    // Sports
+    // Sports only — crypto re-enabled (high volume, genuine directional signals)
     'KXNHL','KXNBA','KXMLB','KXNFL','KXNBASPREAD','KXMLBSPREAD','KXNFLSPREAD','KXNBAML','KXMLBML','KXNFLML',
-    // Crypto
-    'KXBTC','KXETH','KXSOL','KXBNB','KXDOGE','KXXRP','KXADA','KXAVAX','KXMATIC','KXLINK',
   ];
   const isSportsTicker = t => EXCLUDED_PREFIXES.some(p => t.startsWith(p));
 
