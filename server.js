@@ -1439,6 +1439,7 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
   <button class="tab active" onclick="switchTab('markets',this)">Markets<span class="badge" id="bm">0</span></button>
   <button class="tab" onclick="switchTab('signals',this)">Signals<span class="badge" id="bsig">0</span></button>
   <button class="tab" onclick="switchTab('orders',this)">Orders<span class="badge" id="bo">0</span></button>
+  <button class="tab" onclick="switchTab('history',this)">History<span class="badge" id="bh">0</span></button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
 </div>
 
@@ -1490,7 +1491,12 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
   <div id="signals-list"><div class="empty">START agent to detect signals</div></div>
 </div>
 <div id="panel-orders" class="panel">
-  <div id="orders-list"><div class="empty">NO ORDERS YET</div></div>
+  <div id="orders-list"><div class="empty">NO OPEN ORDERS</div></div>
+</div>
+
+<!-- HISTORY -->
+<div id="panel-history" class="panel">
+  <div id="history-list"><div class="empty">NO SETTLED ORDERS YET</div></div>
 </div>
 
 <!-- SETTINGS -->
@@ -1823,34 +1829,51 @@ function sortBy(by){
 }
 
 function renderOrders(){
-  const log=state.orderLog||[];
-  $('bo').textContent=log.length;
-  $('orders-list').innerHTML=log.length?log.slice(0,50).map(o=>{
-    const isWon  = o.status==='won';
-    const isLost = o.status==='lost';
-    const isOpen = o.status==='open'||o.status==='filled';
-    const isSL   = o.status==='stopped';
-    const borderColor = isWon?'#00e5a0':isLost?'#ff4455':isOpen?'#4a9eff':'#252850';
-    const sideColor   = o.side==='yes'?'#00e5a0':'#4a9eff';
-    const statusLabel = isWon?'✓ WON':isLost?'✗ LOST':isSL?'SL':isOpen?o.side.toUpperCase():'SETTLED';
-    const statusColor = isWon?'#00e5a0':isLost?'#ff4455':isSL?'#ff4455':sideColor;
-    const pnlStr = o.pnl!=null
-      ? '<span style="font-size:11px;font-weight:700;color:'+(o.pnl>=0?'#00e5a0':'#ff4455')+'">'
-        +(o.pnl>=0?'+':'')+' $'+Math.abs(o.pnl).toFixed(2)+'</span>'
-      : '<span style="font-size:11px;color:#888">$'+o.stake.toFixed(2)+'</span>';
-    // Find market title — use stored title first, then look up in markets
-    const mkt=state.markets.find(m=>m.ticker===o.ticker);
-    const title=o.title||(mkt?mkt.title:o.ticker)||o.ticker;
-    const displayTitle=title.slice(0,55);
-    return '<div style="background:#0a0c16;border:1px solid '+borderColor+'44;border-left:3px solid '+borderColor+';border-radius:7px;padding:11px 13px;margin-bottom:7px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
-      +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;background:'+statusColor+'22;color:'+statusColor+'">'+statusLabel+'</span>'
-      +pnlStr+'</div>'
-      +'<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+displayTitle+'</div>'
-      +'<div style="font-size:9px;color:#444870">'+o.price+'¢ · '+Number(o.count||0).toFixed(2)+' contracts · '+new Date(o.ts).toLocaleTimeString()+(o.synced?' · synced':'')+'</div>'
-      +(isOpen?(()=>{const mkt2=state.markets.find(m=>m.ticker===o.ticker);const cp=mkt2?(o.side==='yes'?mkt2.yes_bid:mkt2.no_bid):null;if(!cp)return '';const cv=(cp/100)*(o.count||1);const ev=(o.price/100)*(o.count||1);const up=+(cv-ev).toFixed(2);return '<div style="font-size:10px;margin-top:3px;color:'+(up>=0?'#00e5a0':'#ff4455')+'">Unrealized: '+(up>=0?'+':'')+up+' · now: '+cp+'¢</div>';})():'')
-      +'</div>';
-  }).join(''):'<div class="empty">NO ORDERS YET</div>';
+  const log = state.orderLog || [];
+  const open     = log.filter(o => o.status === 'open' || o.status === 'filled');
+  const settled  = log.filter(o => o.status === 'won' || o.status === 'lost' || o.status === 'stopped' || o.status === 'settled');
+
+  // Update badges
+  $('bo').textContent = open.length;
+  const bh = $('bh'); if(bh) bh.textContent = settled.length;
+
+  // Shared card builder
+  function makeCard(o) {
+    const isWon   = o.status === 'won';
+    const isLost  = o.status === 'lost' || o.status === 'stopped';
+    const isOpen  = o.status === 'open' || o.status === 'filled';
+    const mkt     = state.markets.find(m => m.ticker === o.ticker);
+    const title   = o.title || (mkt ? mkt.title : o.ticker) || o.ticker;
+    const bc      = isWon ? '#00e5a033' : isLost ? '#ff445533' : '#1a1a2a';
+    const tc      = isWon ? '#00e5a0'   : isLost ? '#ff4455'   : '#4a9eff';
+    const label   = isWon ? '✓ WON' : isLost ? '✗ LOST' : o.side.toUpperCase();
+    const pnlStr  = o.pnl != null ? (o.pnl >= 0 ? '+$' : '-$') + Math.abs(o.pnl).toFixed(2) : '';
+    // Unrealized P&L for open positions
+    let unrealStr = '';
+    if (isOpen && mkt) {
+      const cp = o.side === 'yes' ? (mkt.yes_bid||o.price) : (mkt.no_bid||o.price);
+      const up = +((cp/100*(o.count||1)) - (o.price/100*(o.count||1))).toFixed(2);
+      unrealStr = '<div style="font-size:10px;margin-top:3px;color:'+(up>=0?'#00e5a0':'#ff4455')+'">'+(up>=0?'+':'')+up.toFixed(2)+'¢ unrealized · now: '+cp+'¢</div>';
+    }
+    return '<div style="background:'+bc+';border:1px solid '+(isWon?'#00e5a033':isLost?'#ff445533':'#252850')+';border-radius:8px;padding:12px;margin-bottom:8px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+      + '<span style="font-size:11px;font-weight:700;color:'+tc+'">'+label+'</span>'
+      + '<span style="font-size:11px;font-weight:700;color:'+tc+'">'+o.price+'¢'+(pnlStr?' · '+pnlStr:'')+'</span>'
+      + '</div>'
+      + '<div style="font-size:11px;color:#e0e8ff;font-weight:600;margin-bottom:3px">'+title.slice(0,60)+'</div>'
+      + '<div style="font-size:9px;color:#444870">'+o.ticker+'</div>'
+      + '<div style="font-size:9px;color:#444870;margin-top:2px">'+Number(o.count||0).toFixed(2)+' contracts · '+new Date(o.ts).toLocaleDateString()+(o.synced?' · synced':'')+'</div>'
+      + unrealStr
+      + '</div>';
+  }
+
+  // Open orders panel
+  const ol = $('orders-list');
+  if(ol) ol.innerHTML = open.length ? open.map(makeCard).join('') : '<div class="empty">NO OPEN ORDERS</div>';
+
+  // History panel
+  const hl = $('history-list');
+  if(hl) hl.innerHTML = settled.length ? settled.map(makeCard).join('') : '<div class="empty">NO SETTLED ORDERS YET</div>';
 }
 
 function renderModel(){
