@@ -1436,9 +1436,9 @@ button{font-family:monospace;cursor:pointer;-webkit-appearance:none}
 <div class="statusbar" id="status-bar">● Connecting…</div>
 
 <div class="tabbar">
-  <button class="tab active" onclick="switchTab('markets',this)">Markets<span class="badge" id="bm">0</span></button>
-  <button class="tab" onclick="switchTab('signals',this)">Signals<span class="badge" id="bsig">0</span></button>
-  <button class="tab" onclick="switchTab('orders',this)">Orders<span class="badge" id="bo">0</span></button>
+  <button class="tab active" onclick="switchTab('markets',this)">Mkts<span class="badge" id="bm">0</span></button>
+  <button class="tab" onclick="switchTab('signals',this)">Sigs<span class="badge" id="bsig">0</span></button>
+  <button class="tab" onclick="switchTab('orders',this)">Open<span class="badge" id="bo">0</span></button>
   <button class="tab" onclick="switchTab('history',this)">History<span class="badge" id="bh">0</span></button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
 </div>
