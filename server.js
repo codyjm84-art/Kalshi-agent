@@ -868,6 +868,7 @@ async function runAutoTrading(signals) {
       ts:     Date.now(),
       type:   candidate.type,
       ticker: candidate.ticker,
+      title:  candidate.market ? (candidate.market.title || candidate.ticker) : candidate.ticker,
       side:   candidate.side,
       price:  candidate.price,
       score:  candidate.score,
@@ -1933,7 +1934,7 @@ function renderSignals(){
       +s.side.toUpperCase()+' '+s.price+'¢ — '+s.ticker+'</button></div>';
   }).join('');
   const al=state.autoLog||[],ls=$('auto-log-section'),ll=$('auto-log-list');
-  if(al.length&&ls){ls.style.display='block';if(ll)ll.innerHTML=al.slice(0,5).map(l=>'<div style="background:#060e08;border:1px solid #00e5a022;border-radius:5px;padding:8px 12px;margin-bottom:5px;font-size:10px"><b style="color:#00e5a0">'+l.side.toUpperCase()+' '+l.price+'¢</b> <span style="color:#888">'+l.ticker+'</span> <span style="font-size:9px;color:#4a9eff">'+l.type+'</span><div style="color:#555;font-size:9px;margin-top:2px">'+l.reason.slice(0,55)+'</div></div>').join('');}
+  if(al.length&&ls){ls.style.display='block';if(ll)ll.innerHTML=al.slice(0,5).map(l=>'<div style="background:#060e08;border:1px solid #00e5a022;border-radius:5px;padding:8px 12px;margin-bottom:5px;font-size:10px"><b style="color:#00e5a0">'+l.side.toUpperCase()+' '+l.price+'¢</b> <span style="font-size:9px;color:#4a9eff">'+l.type+'</span><div style="color:#e0e8ff;font-size:10px;margin-top:2px;font-weight:600">'+(l.title||l.ticker)+'</div><div style="color:#444870;font-size:9px">'+l.ticker+'</div><div style="color:#555;font-size:9px;margin-top:2px">'+l.reason.slice(0,70)+'</div></div>').join('');}
 }
 async function trade(ticker,side,price){
   if(!ticker){flash('error','Invalid market');return;}
